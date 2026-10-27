@@ -8,7 +8,7 @@
 - [x] 수집 단계별 진단, IP Address 헤더 호환성, 파서·수집 테스트
 - [x] SQLite 진단 컬럼 업그레이드와 CSV/HTML 진단
 - [x] 한국어 간편 설정/발견 화면, 승인 UI 제거, 계정 재사용, GUI 검증
-- [ ] 통합 테스트·독립 리뷰·Windows 빌드·Release·다운로드 검증
+- [x] 통합 테스트·독립 리뷰·Windows 빌드·Release·다운로드 검증
 
 ## 공통 인터페이스와 소유 경계
 
@@ -33,3 +33,5 @@ SQLite는 polls.diagnostics TEXT NOT NULL DEFAULT '[]'를 추가한다. 원문�
 
 - 발견·설정 목록은 1,000대 경계에서도 화면 행과 장비 식별을 보존하도록 검증한다.
 - 공개 데이터 검사는 테스트의 정확한 ArubaOS 버전·netmask 문자열만 주소 검사에서 구분하며 일반 IP 예외를 넓히지 않는다.
+
+최종 배포는 v0.3.2다. v0.3.0 반복 테스트의 처리 속도 의존성과 v0.3.1 Windows 동시 최초 키 저장 경합을 수정했다. 실패/재현/검증/배포 내역은 BUILD_VALIDATION_KO.md 및 버전별 validation에 보존한다.

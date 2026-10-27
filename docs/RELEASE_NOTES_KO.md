@@ -8,7 +8,18 @@ Windows x64 실행 ZIP 전체를 압축 해제한 뒤 ArubaClientLiveTracker/Aru
 
 Windows에서 여러 프로세스가 최초 서버 키를 동시에 저장할 때 발생하던 잠금 파일 초기화 경합을 수정했습니다. EOF 이후에도 byte 잠금이 가능하므로 잠금 전 NUL 쓰기를 제거하고, 취소/기한·프로세스 잠금·변경 키 차단을 유지합니다. v0.3.0의 반복 테스트 시간 의존성 개선도 포함합니다. v0.3.1의 Release 성공과 병렬 CI 잠금 실패는 별도 기록에 보존하며, 이 버전으로 교체합니다.
 
-태그 워크플로는 Windows 테스트·EXE 단일/10대 실행 검사를 모두 통과해야 릴리스를 게시합니다. 실행 ZIP의 validation 폴더에 JUnit XML과 스모크 JSON을 포함합니다. 최종 CI·공개 ZIP 검증 결과는 이 릴리스와 docs/BUILD_VALIDATION_KO.md에 기록합니다.
+검증 완료: Linux·Windows 자동 테스트 308개, Ruff, Windows 네이티브 EXE 빌드 및 실제 단일/10대 데모를 통과했습니다. 단일 5회, 다중 10대 각 5회(총 50회)의 관측·SQLite 저장·독립 MAC·정상 종료를 확인했습니다. Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0을 사용했습니다. 의존성 공개 공지는 고정 버전 25개에서 영향 패키지 0개였습니다.
+
+CI: https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40439923216
+Release: https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40440208364
+
+공개 파일을 실제 다운로드하여 SHA-256·ZIP CRC·Windows x64 GUI EXE·일반 사용자 실행 manifest·Qt 한국어 번역·라이선스와 정확한 대응 소스·포함된 테스트/실행 증거를 확인했습니다.
+
+Windows ZIP SHA-256: `60bd4b8f22668f1e5c7bc722768116657878350fa146375abbf603701c1a3a9c`
+
+검증 기록: https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/BUILD_VALIDATION_KO.md
+다운로드 검증 JSON: https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.2/release-verification.json
+
 
 미검증: 실제 ArubaOS 8.10 세부 버전/7240XM/AP-535의 명령과 출력 의미·역할·실장비 부하·장시간 실행·MM 장애 전환·MD 클러스터 로밍, Windows 11 실기와 고배율 화면입니다. Qt offscreen과 Windows CI runner는 실기 검증과 구분합니다.
 

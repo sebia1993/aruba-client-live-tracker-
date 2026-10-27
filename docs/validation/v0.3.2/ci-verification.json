@@ -1,0 +1,68 @@
+{
+  "version": "0.3.2",
+  "source_commit": "700f74f2d7c772f2374881993f311cfcae216d17",
+  "ci_url": "https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40439923216",
+  "platform": "Windows Server 2025 x64",
+  "python": "3.12.10",
+  "pyinstaller": "6.16.0",
+  "tests": {
+    "artifacts/pytest-Windows.xml": [
+      {
+        "tests": "308",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "37.556"
+      }
+    ],
+    "artifacts/pytest-windows-build.xml": [
+      {
+        "tests": "308",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "37.098"
+      }
+    ],
+    "dist/validation/pytest-windows-build.xml": [
+      {
+        "tests": "308",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "37.098"
+      }
+    ]
+  },
+  "smoke": {
+    "windows-exe-multi-smoke": {
+      "success": true,
+      "reason": "GUI 생성·10대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+      "target_count": 10,
+      "observation_count": 50,
+      "target_observations": {
+        "192.0.2.100": 5,
+        "192.0.2.101": 5,
+        "192.0.2.102": 5,
+        "192.0.2.103": 5,
+        "192.0.2.104": 5,
+        "192.0.2.105": 5,
+        "192.0.2.106": 5,
+        "192.0.2.107": 5,
+        "192.0.2.108": 5,
+        "192.0.2.109": 5
+      },
+      "independent_macs": 10
+    },
+    "windows-exe-single-smoke": {
+      "success": true,
+      "reason": "GUI 생성·1대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+      "target_count": 1,
+      "observation_count": 5,
+      "target_observations": {
+        "192.0.2.100": 5
+      },
+      "independent_macs": 1
+    }
+  }
+}

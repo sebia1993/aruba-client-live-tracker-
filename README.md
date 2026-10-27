@@ -2,7 +2,7 @@
 
 ArubaOS 8 환경에서 최대 **10대 무선 클라이언트**의 접속 정보, 무선 품질과 AP 변경을 함께 추적하는 한국어 Windows 데스크톱 도구입니다. MM 이름/IP에서 장비 목록을 발견하고 선택한 장비만 검사하여 등록을 돕습니다. 기존 단일 추적과 수동 MM/MD 설정도 사용할 수 있습니다. MM의 `Current switch`를 등록된 MD에 매핑하여 해당 MD만 읽기 전용으로 조회하며, 실행에 클라우드 서비스가 필요하지 않습니다.
 
-v0.3.2의 자동 테스트·Windows 빌드·공개 배포 확인은 [현재 검증 기록](docs/BUILD_VALIDATION_KO.md)에 기록합니다. v0.3.2는 Windows에서 여러 프로세스가 최초 서버 키를 동시에 저장할 때 발생하던 잠금 초기화 경합을 수정합니다. 자동 검사와 배포 파일 확인 결과를 현재 검증 기록에 보존합니다. v0.2.0의 성공 결과는 [과거 검증](docs/validation/v0.2.0/BUILD_VALIDATION_KO.md)으로 분리했으며 새 버전의 결과로 사용하지 않습니다. 실제 Aruba 장비와 Windows 11 실기는 미검증입니다. 사용자가 겪은 MD 오류의 실제 원인은 아직 미확정이며, 자동 등록 기능만으로 해결됐다고 단정하지 않습니다.
+v0.3.2의 자동 테스트·Windows 빌드·공개 배포 확인은 [현재 검증 기록](docs/BUILD_VALIDATION_KO.md)에 기록합니다. v0.3.2는 Windows에서 여러 프로세스가 최초 서버 키를 동시에 저장할 때 발생하던 잠금 초기화 경합을 수정합니다. Linux·Windows 테스트 308개와 Windows EXE 단일/10대 실행, 공개 ZIP의 SHA-256·구성 검증을 완료했습니다. 결과를 현재 검증 기록에 보존합니다. v0.2.0의 성공 결과는 [과거 검증](docs/validation/v0.2.0/BUILD_VALIDATION_KO.md)으로 분리했으며 새 버전의 결과로 사용하지 않습니다. 실제 Aruba 장비와 Windows 11 실기는 미검증입니다. 사용자가 겪은 MD 오류의 실제 원인은 아직 미확정이며, 자동 등록 기능만으로 해결됐다고 단정하지 않습니다.
 
 ![가상 데이터 10대를 동시 추적하는 v0.3.0 Qt 대시보드](docs/assets/v030-multi-dashboard.png)
 
@@ -14,7 +14,7 @@ v0.3.2의 자동 테스트·Windows 빌드·공개 배포 확인은 [현재 검�
 
 ## 다운로드와 실행
 
-공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases)에서 게시된 Windows 실행 ZIP, SHA-256 및 LGPL 대응 소스를 받으십시오. v0.3.2 게시와 다운로드 검증은 아직 확인 전입니다.
+공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases)에서 게시된 Windows 실행 ZIP, SHA-256 및 LGPL 대응 소스를 받으십시오. [v0.3.2 실행 ZIP 다운로드](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.2/ArubaClientLiveTracker_v0.3.2_windows_x64.zip) · [체크섬 및 대응 소스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.2). 실제 다운로드 검증을 완료했습니다.
 
 1. 게시된 `ArubaClientLiveTracker_v0.3.2_windows_x64.zip`과 `.sha256`을 받아 해시를 비교합니다.
 2. ZIP 전체를 사용자 폴더에 풀고 `ArubaClientLiveTracker/ArubaClientLiveTracker.exe`를 실행합니다. Python 설치와 관리자 권한은 필요하지 않습니다.

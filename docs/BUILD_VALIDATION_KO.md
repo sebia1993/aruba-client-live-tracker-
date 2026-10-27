@@ -4,7 +4,26 @@
 
 ## 현재 검증
 
-v0.3.2 최종 로컬 테스트 308개(21.13초), Ruff·공개 자료 보안 검사·버전 일치 검사와 독립 리뷰를 통과했습니다. Windows CI·태그 Release·공개 다운로드 결과는 실행 후 기록합니다. 이전 결과를 새 버전의 통과로 대체하지 않습니다.
+v0.3.2 최종 로컬 테스트 308개(21.13초), Ruff·공개 자료 보안 검사·버전 일치 검사와 독립 리뷰를 통과했습니다. Windows CI, 태그 Release 게시, 실제 공개 다운로드의 SHA-256·CRC·구성 검증도 완료했습니다. 이전 결과를 새 버전의 통과로 대체하지 않습니다.
+
+## 최종 Windows CI
+
+[CI 40439923216](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40439923216)는 커밋 `700f74f2d7c772f2374881993f311cfcae216d17`에서 Ubuntu·Windows 모두 성공했습니다. Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0에서 초기 308개(37.60초), 빌드 재검사 308개(37.15초)를 통과했습니다. JUnit은 오류·실패·건너뛰기 모두 0입니다. 실제 CRT 잠금/프로세스 경쟁과 빈 잠금 파일 회귀 검사를 포함한 trust-lock 8개가 모두 통과했습니다.
+
+소스·EXE 단일 데모는 1대 5회, 다중 데모는 10대 각 5회(총 50회), 독립 MAC 10개와 SQLite 저장·정상 종료를 확인했습니다. 공개 의존성 공지 검사는 고정 버전 25개에서 영향 패키지 0개였습니다. [CI 검증 JSON](validation/v0.3.2/ci-verification.json)에 아티팩트 요약을 보존합니다. 같은 커밋의 태그에서 최종 배포를 빌드합니다.
+
+## 최종 배포와 다운로드
+
+같은 소스 커밋의 `v0.3.2` 태그에서 [Release 40440208364](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40440208364)가 성공했고 [공개 릴리스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.2)에 게시됐습니다. Windows에서 308개(35.40초), Ruff와 실제 EXE 단일/10대 검사를 재통과했습니다. 게시 후 실행 ZIP 및 대응 소스 ZIP과 체크섬 파일을 직접 다운로드했습니다.
+
+| 공개 파일 | 바이트 | SHA-256 |
+|---|---:|---|
+| `ArubaClientLiveTracker_v0.3.2_windows_x64.zip` | 43,324,834 | `60bd4b8f22668f1e5c7bc722768116657878350fa146375abbf603701c1a3a9c` |
+| `ArubaClientLiveTracker_v0.3.2_third_party_sources.zip` | 72,212,226 | `a852217187346e492f40a29c8fc8beabb42acf79b8c16c40fc4fc28d24771622` |
+
+[다운로드 검증 JSON](validation/v0.3.2/release-verification.json)은 ZIP CRC·AMD64 PE32+ Windows GUI·일반 사용자 `asInvoker`·Qt 한국어 번역·라이선스 10개·정확한 대응 소스 6개·배포 SOURCE의 실행 소스 18개 일치(개행 정규화)·필수 소스 29개·308개 JUnit·단일/10대 스모크 증거를 확인합니다. 706개 ZIP 멤버의 파일명과 제한된 텍스트 비밀 패턴 검사에서 로컬 설정/DB/운영 로그 등 금지 파일은 0개였습니다. 이 검사는 모든 종류의 임의 비밀정보 부재를 수학적으로 증명하지 않습니다. 실제 운영망 자료는 개발·캡처·테스트에 사용하지 않았습니다.
+
+태그 이후 커밋은 이 검증 결과를 문서화하며 배포 실행 코드와 의존성은 변경하지 않습니다. v0.3.0 실패 태그와 v0.3.1 prerelease는 이력을 보존하고, 사용자는 v0.3.2를 사용합니다.
 
 ## 실패와 수정 기록
 
