@@ -118,7 +118,8 @@ class DiscoveryDialog(QDialog):
                         service.close()
                 finally:
                     with service_lock:
-                        holder[0] = None
+                        if holder[0] is service:
+                            holder[0] = None
         threading.Thread(target=work, name=f'discovery-{operation}', daemon=True).start()
 
     @staticmethod

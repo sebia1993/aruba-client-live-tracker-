@@ -404,9 +404,11 @@ class HistoryDialog(QDialog):
         self.grid = table(["번호", "검색 조건", "모드", "시작 시각", "종료 시각"])
         self.grid.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.grid)
-        for session in store.sessions():
+        sessions = store.sessions()
+        for session in sessions:
             add_row(self.grid, [session["id"], session["query"], "가상 데이터" if session["simulated"] else "장비 조회",
-                                display_time(session["started_at"]), display_time(session["ended_at"])])
+                                display_time(session["started_at"]), display_time(session["ended_at"])],
+                    maximum=max(500, len(sessions)), scroll=False)
         period = QFormLayout()
         self.start_edit = QLineEdit()
         self.end_edit = QLineEdit()

@@ -1,8 +1,8 @@
-# Aruba Client Live Tracker v0.3.6
+# Aruba Client Live Tracker v0.3.7
 
 ArubaOS 8 환경에서 최대 **10대 무선 클라이언트**의 접속 정보, 무선 품질과 AP 변경을 함께 추적하는 한국어 Windows 데스크톱 도구입니다. MM 이름/IP에서 장비 목록을 발견하고 선택한 장비만 검사하여 등록을 돕습니다. 기존 단일 추적과 수동 MM/MD 설정도 사용할 수 있습니다. MM의 `Current switch`를 등록된 MD에 매핑하여 해당 MD만 읽기 전용으로 조회하며, 실행에 클라우드 서비스가 필요하지 않습니다.
 
-v0.3.6은 SSH 출력의 첫 머리글 들여쓰기와 페이지 경계의 반복 머리글을 처리하고, 빈 주소 셀·짧은 행·주소 형식 오류를 구분합니다. 인계된 안정성 수정과 설정·이력·보고서·소스 패키징 복구도 보완합니다. 주소·행 수 검증, 조회 명령과 자동 TOFU 정책은 유지합니다. 합성 시험과 실제 Aruba 장비의 검증은 구분하며, 9행/0/0의 운영 원인은 아직 확정하지 않았습니다. [현재 검증 기록](docs/BUILD_VALIDATION_KO.md) · [이전 v0.3.5 기록](docs/validation/v0.3.5/BUILD_VALIDATION_KO.md)
+v0.3.7은 취소·중복 대상의 SSH 자원 정리, 발견 작업 간 취소 경합, 500건 초과 이력 표시와 종료 저장 실패의 중지 재시도를 보완합니다. v0.3.6의 발견 파서·구조 진단을 유지하며 주소·행 수 검증, 조회 명령과 자동 TOFU 정책은 바뀌지 않습니다. 합성 시험과 실제 Aruba 장비의 검증은 구분하며, 9행/0/0의 운영 원인은 아직 확정하지 않았습니다. [현재 검증 기록](docs/BUILD_VALIDATION_KO.md) · [이전 v0.3.6 기록](docs/validation/v0.3.6/BUILD_VALIDATION_KO.md)
 
 ![가상 데이터 10대를 동시 추적하는 v0.3.0 Qt 대시보드](docs/assets/v030-multi-dashboard.png)
 
@@ -14,9 +14,9 @@ v0.3.6은 SSH 출력의 첫 머리글 들여쓰기와 페이지 경계의 반복
 
 ## 다운로드와 실행
 
-공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases)에서 게시된 Windows 실행 ZIP, SHA-256 및 LGPL 대응 소스를 받으십시오. [v0.3.6 실행 ZIP 다운로드](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.6/ArubaClientLiveTracker_v0.3.6_windows_x64.zip) · [체크섬 및 대응 소스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.6). 게시 여부와 실제 다운로드 검증 결과는 [검증 기록](docs/BUILD_VALIDATION_KO.md)을 확인하십시오.
+공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases)에서 게시된 Windows 실행 ZIP, SHA-256 및 LGPL 대응 소스를 받으십시오. [v0.3.7 실행 ZIP 다운로드](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.7/ArubaClientLiveTracker_v0.3.7_windows_x64.zip) · [체크섬 및 대응 소스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.7). 게시 여부와 실제 다운로드 검증 결과는 [검증 기록](docs/BUILD_VALIDATION_KO.md)을 확인하십시오.
 
-1. 게시된 `ArubaClientLiveTracker_v0.3.6_windows_x64.zip`과 `.sha256`을 받아 해시를 비교합니다.
+1. 게시된 `ArubaClientLiveTracker_v0.3.7_windows_x64.zip`과 `.sha256`을 받아 해시를 비교합니다.
 2. ZIP 전체를 사용자 폴더에 풀고 `ArubaClientLiveTracker/ArubaClientLiveTracker.exe`를 실행합니다. Python 설치와 관리자 권한은 필요하지 않습니다.
 3. 데모 모드에서 단일 추적과 다중 모니터링을 확인합니다.
 4. 실제 연결은 전체 추적을 중지한 뒤 간편 설정에서 MM 이름/IP와 공통 SSH 계정을 입력합니다. 발견 목록에서 검사할 장비를 선택하고 역할·관리 주소·MD 매핑을 검토한 뒤 저장합니다. 기존 수동 설정도 유지됩니다.

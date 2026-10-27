@@ -263,6 +263,9 @@ class MonitoringCoordinator:
                         duplicate.generation += 1
                         duplicate.cancel.set()
                         changed.append(duplicate.id)
+                    if not duplicate.in_flight and duplicate.collector is not None:
+                        duplicate.collector.close()
+                        duplicate.collector = None
                 if winner is not context:
                     result = replace(result, outcome=Outcome.AMBIGUOUS, observation=None, error=context.note)
         if result.outcome == Outcome.AMBIGUOUS and context.status != "duplicate":
