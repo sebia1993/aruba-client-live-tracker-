@@ -206,10 +206,28 @@ def test_known_key_reconnect_skips_approval(make):
 
 
 def test_deadline_stops_unresponsive_session(make, monkeypatch):
-    monkeypatch.setattr("aruba_client_live_tracker.ssh.INITIAL_CONNECTION_TIMEOUT", 0.04)
     session, client, _ = make()
+    command = 'show global-user-table list ip "192.0.2.100"'
+    session.run(command)  # Complete TOFU, authentication and initial prompt first.
+    assert client.authenticated
+    client.channel.response = "Waiting for a CLI response without a prompt"
+
+    class Clock:
+        now = 100.0
+
+        def monotonic(self):
+            return self.now
+
+        def sleep(self, duration):
+            self.now += duration
+
+    # Advance only the SSH read loop's clock; disk speed and thread scheduling
+    # cannot consume this command's budget during an earlier connection stage.
+    monkeypatch.setattr("aruba_client_live_tracker.ssh.time", Clock())
+    monkeypatch.setattr("aruba_client_live_tracker.ssh.COMMAND_TIMEOUT", 1.0)
     with pytest.raises(SSHError) as caught:
-        session.run('show global-user-table list ip "192.0.2.100"')
+        session.run(command)
+    assert client.channel.sent == [command + "\n", command + "\n"]
     assert caught.value.code == "TIMEOUT"
     assert caught.value.retryable
     assert client.closed
