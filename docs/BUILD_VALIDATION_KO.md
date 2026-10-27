@@ -96,6 +96,12 @@ Computer Use로 동일 EXE의 native 화면에서 10,001개 세션 목록, 합�
 
 90초 native EXE 리허설 중 진행 파일을 실제 읽기 핸들로 1.594초 잠갔습니다. 잠금 중 교체 시도와 이전 파일 보존, 해제 뒤 heartbeat 12→15 진행, 최대 heartbeat 간격 1.141초를 확인했습니다. 증거: `artifacts/native-progress-lock-v038.json`. 이는 프로그램 방식의 native 실행 검증이며 새 시각적 GUI 검증이나 8시간 통과는 아닙니다. 장시간 검증 후 최종 문서를 ZIP의 docs와 SOURCE에 다시 포함하고 manifest·SHA-256을 갱신해야 하므로 위 후보 해시는 최종 공개 릴리스 해시가 아닙니다.
 
+### 세 번째 실행: 수정본 8시간 검증 진행 중
+
+새 EXE의 90초 리허설은 실제 **91.594초**, 종료 코드 0, 자원 표본 92개로 통과했습니다. 대상 10대 각각 9회·합계 90개 저장, `integrity_check=ok`, 미종료 세션 0, 최대 수집 간격 11.047초를 확인했습니다. 이 결과는 8시간 통과가 아닙니다.
+
+구현 커밋 `5f25a053f40edd1427e10b56996b018b29bb4e6f`의 수정본으로 **2026-10-27 21:04:16 KST**에 새 폴더 `v038 8시간 재검증 3`에서 검증을 시작했습니다. 실행 식별자는 `49c3795e3c7a401bb070234d4d05d5ba`, 빌드 ID는 `0.3.8-506867ece370`이며 위 수정본 EXE 해시와 일치합니다. 정상 수집 주기 10초·합성 대상 10대·native Windows로 실행하며, 완료는 **2026-10-28 05:04:18 KST 이후**에만 가능합니다. 15분 간격 후속 확인을 설정했습니다. 최종 결과·장시간 판정·새 커밋 CI·최종 배포 문서와 ZIP 갱신은 남아 있습니다. 이전 실행 시간은 합산하지 않습니다.
+
 실행 증거는 별도 `.codex-tmp/Aruba 검증 20261027` 아래 각각의 실행 폴더에, 최신 후속 작업 식별 정보는 로컬 `artifacts/stability-v038-continuation.json`에 보관합니다. 운영 데이터·Windows 전원/보안 설정은 변경하지 않았습니다.
 
 로컬 증거: `artifacts/large-history-report.md`, `artifacts/storage-faults-report.md`, `artifacts/connection-recovery-report.md`, `artifacts/soak-sampler-report.md`, `artifacts/stability-review.md`. 실행 방법과 기준은 [연속 검증 안내](STABILITY_RUN_KO.md)에 있습니다.
