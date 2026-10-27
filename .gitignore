@@ -14,6 +14,7 @@ artifacts/
 *.log
 .env*
 settings.json
+settings.json.recovery-*.bak
 known_hosts*
 credentials*
 raw-output/
