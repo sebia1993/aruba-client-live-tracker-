@@ -28,12 +28,12 @@
 
 ## Tasks
 
-- [ ] Establish clean baseline at `7df804c`; record tests before product edits.
-- [ ] Large history: measure 10,000 sessions and 100,000–1,000,000 polls. Own `storage.py`, history-related `ui.py` code, dedicated tests/benchmark script. Preserve selection/report output. Add failing bounded-read and responsiveness regressions before fixes. Compare before/after measurements.
-- [ ] Storage faults: own `tests/test_storage_faults.py` and subprocess helpers. Exercise actual SQLite FULL, process termination, DB corruption and reopen/integrity checks; coordinate any required product fix with the storage owner.
-- [ ] Connection recovery: own dedicated integration tests and local SSH fixture. Repeat TCP disconnect, silent response and server restart through coordinator/pool/Paramiko. Confirm isolation, cooldown recovery and stop/close. Report any product fix before touching SSH/pool/UI lifecycle files.
-- [ ] Soak validation: add a bounded, synthetic-only diagnostic run compatible with the frozen EXE, if necessary, with tests for invalid arguments, time completion and early failure. Add an external resource sampler with isolated reports. Short rehearsal must pass before the eight-hour run.
-- [ ] Run full tests, Ruff, independent review and Windows EXE build; visually verify meaningful history/UI changes.
+- [x] Establish clean baseline at `7df804c`; record tests before product edits.
+- [x] Large history: measure 10,000 sessions and 100,000–1,000,000 polls. Own `storage.py`, history-related `ui.py` code, dedicated tests/benchmark script. Preserve selection/report output. Add failing bounded-read and responsiveness regressions before fixes. Compare before/after measurements.
+- [x] Storage faults: own `tests/test_storage_faults.py` and subprocess helpers. Exercise actual SQLite FULL, process termination, DB corruption and reopen/integrity checks; coordinate any required product fix with the storage owner.
+- [x] Connection recovery: own dedicated integration tests and local SSH fixture. Repeat TCP disconnect, silent response and server restart through coordinator/pool/Paramiko. Confirm isolation, cooldown recovery and stop/close. Report any product fix before touching SSH/pool/UI lifecycle files.
+- [x] Soak validation: add a bounded, synthetic-only diagnostic run compatible with the frozen EXE, if necessary, with tests for invalid arguments, time completion and early failure. Add an external resource sampler with isolated reports. Short rehearsal must pass before the eight-hour run.
+- [x] Run full tests, Ruff, independent review and Windows EXE build; visually verify meaningful history/UI changes.
 - [ ] Run eight-hour frozen-EXE soak at the normal collection cadence with 10 synthetic targets. Record wall time, samples, heartbeat, private bytes/handles/threads, DB integrity and clean shutdown. If continuation is needed, retain exact process/run identity and arrange a follow-up on this thread.
 - [ ] Deliver verified artifacts and evidence; do not claim long-soak/field success before observed completion.
 
@@ -42,3 +42,5 @@
 - 2026-10-27: clean checkout `7df804c`; approved proposal; baseline started. Prior v0.3.7 evidence and release remain intact.
 - Baseline 575 passed in 76.43s. Large-history RED/GREEN and 100k/1m before-after comparison complete; unchanged report hashes. Storage faults 9 passed, connection recovery 7 passed with 60 recovery/20 restart rounds.
 - Independent review P1/P2 in soak monitor resolved with three failing regressions. Final full suite 673 passed in 233.83s; Ruff and whitespace checks passed. Version 0.3.8 prepared; native EXE/rehearsal/eight-hour evidence still pending.
+- Windows build rerun 673 passed in 235.04s; extracted ZIP passed ten frozen runs and 275 observations. Native 100k preview/CSV export/scroll during export/HTML cancellation/clean exit passed. Exact implementation-head CI 40488529393 passed (Linux 667 + 6 platform skips; Windows 673 twice; six source/frozen smoke reports).
+- Native 60s rehearsal passed in 61.563s, 60 persisted observations, 62 resource samples, no unclosed sessions. Actual 8h run started 2026-10-27 19:42:43 KST, due no earlier than 2026-10-28 03:42:43 KST; run_id `20cba3f9675747ecb590d26ee270e875`. Thirty-minute thread follow-up configured. Eight-hour result and final delivery remain pending.

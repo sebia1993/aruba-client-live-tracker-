@@ -1,6 +1,6 @@
 # v0.3.8 안정성 검증
 
-2026-10-27, 기준 `7df804c`에서 기존 변경과 데이터를 보존하고 진행했습니다. 이전 결과는 [v0.3.7 기록](validation/v0.3.7/BUILD_VALIDATION_KO.md)에 보관합니다. 이 문서 작성 시 **최종 EXE·8시간 검증은 아직 완료 전**이며 완료 결과를 아래에 추가합니다.
+2026-10-27, 기준 `7df804c`에서 기존 변경과 데이터를 보존하고 진행했습니다. 이전 결과는 [v0.3.7 기록](validation/v0.3.7/BUILD_VALIDATION_KO.md)에 보관합니다. **Windows EXE·native GUI 검증은 통과했고, 8시간 검증은 아직 완료 전**입니다.
 
 ## 재현과 수정
 
@@ -33,7 +33,31 @@
 - 변경 전 전체: 575개 통과 / 76.43초.
 - 중간 통합: 635개 통과 / 235.67초. 이후 검증기 보완이 있으므로 최종 수치가 아닙니다.
 - 최종 통합: **673개 통과 / 233.83초**, 실패·오류·건너뛰기 0. Ruff와 `git diff --check`도 통과했습니다. `artifacts/stability-final-20261027.xml`에 기록했습니다.
-- Windows EXE·native GUI·8시간 실측: 진행 중. 성공 여부를 실행 증거로 갱신합니다.
+- Windows 빌드 과정의 별도 전체 검사도 **673개 통과 / 235.04초**였습니다. 고정 의존성 25개 공개 취약점 조회 0건, PyInstaller와 단일/10대 frozen smoke 검사가 통과했습니다.
+- [CI 40488529393](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40488529393)는 구현 커밋 `a276d6d6d8b717554275e945621a885b794e6040`에서 성공했습니다. Linux 667개 통과·Windows 전용 6개 제외, Windows 검사와 빌드 재검사 각각 673개 통과, 실패·오류 0입니다. 검증 artifact의 source/frozen smoke JSON 6개를 내려받아 성공·대상별 5회 저장·빌드 ID를 확인했습니다.
+
+## 배포 ZIP과 실제 Windows 화면
+
+빌드 ID는 `0.3.8-2a8590e961c7`입니다. 배포 ZIP을 별도 한글·공백 경로에 풀고 자식 PATH에서 Python을 제외한 뒤, 격리 TEMP로 단일/10대 실행을 각각 5회 반복했습니다. 실제 frozen EXE 10회 실행, 합계 275개 관측, 대상별 분리와 정상 세션 종료를 확인했습니다. ZIP CRC·경로, 소스 manifest 243개, 제3자 소스 6개 해시, Git 없는 소스 재수출도 통과했습니다. 실행 파일은 AMD64 Windows GUI·`asInvoker`이며 코드 서명은 없습니다.
+
+| 로컬 산출물 | 크기 | SHA-256 |
+|---|---:|---|
+| `ArubaClientLiveTracker_v0.3.8_windows_x64.zip` | 40,473,332 bytes | `f8a64ff8290d762bffe57eb2e85a93878eaf8325202e208738c151a4ed7add87` |
+| `ArubaClientLiveTracker_v0.3.8_third_party_sources.zip` | 72,212,226 bytes | `1f787b17497c61736d724d33130bc989a623d640e8b7d1d202f756ec99b70954` |
+
+Computer Use로 동일 EXE의 native 화면에서 10,001개 세션 목록, 합성 100,000개 관측 미리보기, CSV 저장 대화상자와 완료 안내를 확인했습니다. CSV 기록 중 목록 스크롤이 동작하고 완료 후 버튼이 복구됐습니다. 결과 CSV는 48열, 관측 100,000행과 선택된 빈 세션의 메타데이터 3행입니다. 별도로 HTML 저장 중 이력 창을 닫아 취소했고, 완성 HTML이나 임시 파일이 남지 않았습니다. 앱 정상 종료 뒤 새 세션의 종료 시각과 DB `integrity_check=ok`를 확인했습니다.
+
+증거는 `artifacts/local-package-v038.json`, `artifacts/native-v038-verification.json`, `artifacts/ci-v038/run-40488529393-461b699e56ba479c9a9e8ae197fcb2fc/inspection.json`에 보관했습니다. 위 ZIP은 검증 후보이며 8시간 판정 전 공개 릴리스 완료로 간주하지 않습니다.
+
+## 8시간 실측
+
+60초 native 리허설은 실제 61.563초 뒤 종료 코드 0으로 통과했습니다. 10대 각각 6회, 합계 60개 저장, `integrity_check=ok`, 미종료 세션 0, GUI heartbeat 최대 간격 1.156초, 자원 표본 62개와 기준 통과를 확인했습니다. 이는 짧은 리허설이며 8시간 통과가 아닙니다.
+
+동일 배포 ZIP의 EXE로 **2026-10-27 19:42:43 KST**에 8시간 native 검증을 시작했습니다. 완료 예정은 **2026-10-28 03:42:43 KST 이후**입니다. 실행 식별자는 `20cba3f9675747ecb590d26ee270e875`, EXE SHA-256은 `4c353592f65e8f496f36565d20110ede5c607c7fd07101d780f760b2efdb2e64`입니다. 정상 합성 대상 10대, 수집 주기 10초, 자원 기록 주기 10초로 실행합니다.
+
+현재 판정은 **진행 중 / 미완료**입니다. 시작 직후 native Windows·frozen 빌드 식별, 10대 수집 증가, GUI heartbeat와 자원 JSONL 갱신을 확인했습니다. 완료 전에는 통과로 표시하지 않습니다. 이 대화의 30분 간격 후속 확인을 설정했으며, 최종 종료·자원·DB 증거를 확인한 뒤 결과를 갱신합니다. PC나 실행 세션이 중단된 경우 해당 실행은 미완료/실패로 구분합니다.
+
+실행 증거는 별도 `.codex-tmp/Aruba 검증 20261027/v038 8시간 연속 검증` 폴더에, 후속 작업 식별 정보는 로컬 `artifacts/stability-v038-continuation.json`에 보관합니다. 운영 데이터·Windows 전원/보안 설정은 변경하지 않았습니다.
 
 로컬 증거: `artifacts/large-history-report.md`, `artifacts/storage-faults-report.md`, `artifacts/connection-recovery-report.md`, `artifacts/soak-sampler-report.md`, `artifacts/stability-review.md`. 실행 방법과 기준은 [연속 검증 안내](STABILITY_RUN_KO.md)에 있습니다.
 
