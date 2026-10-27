@@ -399,7 +399,8 @@ class MainWindow(_Dashboard):
         self.settings_button.setEnabled(not locked)
         self.account_button.setEnabled(not locked)
         self.scenario.setEnabled(bool(self.mode.currentData()) and not locked)
-        self.stop_button.setEnabled(bool(context and (context.status != 'stopped' or context.in_flight)))
+        self.stop_button.setEnabled(bool(context and (context.status != 'stopped' or context.in_flight
+                                                     or context.session_id is not None)))
         self.pause_button.setEnabled(bool(context and context.status in {'running','paused'}))
         self.pause_button.setText('추적 재개' if context and context.status == 'paused' else '일시 정지')
         self.refresh_button.setEnabled(bool(context and context.status in {'running','paused'} and not context.in_flight))

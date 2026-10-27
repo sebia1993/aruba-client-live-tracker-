@@ -315,16 +315,26 @@ class SSHSession:
         # disk state under the cross-process lock, including known endpoints.
         client.set_missing_host_key_policy(_TOFUPolicy(self, cancel, deadline))
         remaining = min(CONNECT_TIMEOUT, max(0.01, deadline - time.monotonic()))
-        client.connect(
-            hostname=self.device.host, port=self.device.port,
-            username=self.credentials.username, password=self.credentials.password,
-            timeout=remaining, banner_timeout=remaining, auth_timeout=remaining,
-            look_for_keys=False, allow_agent=False, transport_factory=transport_factory,
-        )
-        self._check(cancel, deadline)
-        self._channel = client.invoke_shell(term="vt100", width=4096, height=1000)
-        self._channel.settimeout(0.2)
-        self._read(cancel, deadline, initial=True)
+        try:
+            client.connect(
+                hostname=self.device.host, port=self.device.port,
+                username=self.credentials.username, password=self.credentials.password,
+                timeout=remaining, banner_timeout=remaining, auth_timeout=remaining,
+                look_for_keys=False, allow_agent=False, transport_factory=transport_factory,
+            )
+            self._check(cancel, deadline)
+            self._channel = client.invoke_shell(term="vt100", width=4096, height=1000)
+            self._channel.settimeout(0.2)
+            self._read(cancel, deadline, initial=True)
+        except BaseException:
+            # The watcher can detach this client during DNS/TCP setup, before
+            # Paramiko publishes its transport. Keep local ownership so a
+            # transport created after that close is still released on failure.
+            try:
+                client.close()
+            except (OSError, EOFError, paramiko.SSHException):
+                pass
+            raise
 
     def _read(self, cancel: threading.Event | None, deadline: float, *, initial: bool = False) -> str:
         data = bytearray()
