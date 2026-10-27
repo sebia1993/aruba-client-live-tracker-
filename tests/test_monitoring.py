@@ -1,3 +1,4 @@
+import queue
 import threading
 import time
 
@@ -214,9 +215,10 @@ def test_ten_clients_300_rounds_bound_buffers_and_preserve_fairness(tmp_path):
     coordinator.start_all()
     counts = {identity: 0 for identity in identities}
     last = {}
-    deadline = time.monotonic() + 60
     try:
-        while min(counts.values()) < 300 and time.monotonic() < deadline:
+        # This is a sample-count/fairness soak, not a disk-throughput benchmark.
+        # Every iteration must make progress; a stuck worker has its own timeout.
+        for _ in range(300 * len(identities) + 1):
             coordinator.tick()
             assert sum(c.in_flight for c in coordinator.contexts.values()) <= 2
             for identity, context in coordinator.contexts.items():
@@ -225,8 +227,25 @@ def test_ten_clients_300_rounds_bound_buffers_and_preserve_fairness(tmp_path):
                     counts[identity] += 1
                     if counts[identity] == 300:
                         coordinator.pause(identity)
+            assert max(counts.values()) - min(counts.values()) <= 1
+            if min(counts.values()) >= 300:
+                break
+            pending = tuple(coordinator._inflight.values())
+            assert pending, f"scheduler stalled before completing all rounds: {counts}"
+            # Wait for real worker callbacks, then leave their records queued for
+            # tick() to apply normally (including real SQLite persistence). Waiting
+            # only on Future.result() can race the callback that enqueues the work.
+            completed = []
+            try:
+                for _work in pending:
+                    completed.append(coordinator._completed.get(timeout=10))
+            except queue.Empty:
+                pytest.fail(f"poll worker stalled before completing a batch: {counts}")
+            finally:
+                for work in completed:
+                    coordinator._completed.put(work)
+            assert {id(work) for work in completed} == {id(work) for work in pending}
             clock[0] += 15
-            time.sleep(0.0001)
         assert min(counts.values()) >= 300
         assert max(counts.values()) <= 301
         assert all(len(c.samples) == 240 and len(c.events) <= 500 for c in coordinator.contexts.values())

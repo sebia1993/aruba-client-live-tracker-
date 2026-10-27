@@ -1,4 +1,4 @@
-Aruba Client Live Tracker v0.3.0
+Aruba Client Live Tracker v0.3.1
 
 MM 이름/IP와 공통 SSH 계정으로 장비 목록을 발견하고 선택한 장비의 역할·모델·버전을 검사할 수 있습니다. show switches/show version/show switchinfo의 읽기 전용 결과를 사용하며, 불명확한 역할은 AUTO로 남겨 추적에서 제외합니다. 기존 수동 장비·관리 주소·Current switch 매핑을 보존합니다. 최초 서버 키는 질문이나 opt-in 없이 자동 저장하고 변경된 키·알고리즘은 인증 전에 차단합니다. 공통 계정은 실행 중에만 재사용하며 파일에 저장하지 않습니다.
 
@@ -6,11 +6,7 @@ MM 이름/IP와 공통 SSH 계정으로 장비 목록을 발견하고 선택한 
 
 Windows x64 실행 ZIP 전체를 압축 해제한 뒤 ArubaClientLiveTracker/ArubaClientLiveTracker.exe를 실행하십시오. Python 설치와 관리자 권한은 필요하지 않습니다. 먼저 데모로 확인하고 제공된 SHA-256을 비교하십시오. 코드 서명되지 않았습니다. LGPL 대응 소스 ZIP도 함께 보관·재배포합니다. Qt/PySide 6.8.3와 Paramiko 5.0.0 버전 및 정확한 대응 소스 검증을 유지합니다.
 
-검증: Linux·Windows 자동 테스트 307개, Ruff, 단일/10대 소스 GUI 스모크와 Windows 네이티브 EXE 단일/10대 실행 검사가 통과했습니다. Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0으로 빌드했습니다. EXE는 단일 5회, 10대 각 5회(총 50회) 관측·SQLite 저장·정상 종료를 확인했습니다. 고정 의존성 25개의 공개 공지 검사에서 영향 패키지는 0개였습니다.
-
-최종 소스 CI: https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40437725402
-
-태그 빌드는 같은 검사를 다시 수행해야 이 릴리스를 게시합니다. 공개 ZIP의 다운로드·체크섬·구성 검증 결과는 게시 후 이 릴리스와 docs/BUILD_VALIDATION_KO.md에 기록합니다. 검증 증거 JSON/XML은 실행 ZIP의 validation 폴더에도 포함됩니다.
+v0.3.0 태그 빌드는 10대×300회 반복 테스트의 60초 제한으로 게시 전에 중단했습니다. 공개 태그를 보존하고, 실제 작업자·SQLite·300회·버퍼/공정성 조건을 유지한 완료 통지 기반 테스트로 수정하여 v0.3.1을 배포합니다. 로컬 전체 테스트 307개와 정적 검사를 통과했습니다. 태그 워크플로는 Windows 테스트·EXE 단일/10대 실행 검사를 모두 통과해야 릴리스를 게시합니다. 실행 ZIP의 validation 폴더에 JUnit XML과 스모크 JSON을 포함합니다. 최종 CI·공개 ZIP 검증 결과는 이 릴리스와 docs/BUILD_VALIDATION_KO.md에 기록합니다.
 
 미검증: 실제 ArubaOS 8.10 세부 버전/7240XM/AP-535의 명령과 출력 의미·역할·실장비 부하·장시간 실행·MM 장애 전환·MD 클러스터 로밍, Windows 11 실기와 고배율 화면입니다. Qt offscreen과 Windows CI runner는 실기 검증과 구분합니다.
 
