@@ -14,7 +14,7 @@ v0.3.4는 공식 ArubaOS 8.10 문서의 IPv4 부재/IPv6 장비 행을 지원하
 
 ## 다운로드와 실행
 
-공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases)에서 게시된 Windows 실행 ZIP, SHA-256 및 LGPL 대응 소스를 받으십시오. [v0.3.4 실행 ZIP 다운로드](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.4/ArubaClientLiveTracker_v0.3.4_windows_x64.zip) · [체크섬 및 대응 소스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.4). 실제 공개 다운로드의 SHA-256·구성 검증을 완료했습니다.
+공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases)에서 게시된 Windows 실행 ZIP, SHA-256 및 LGPL 대응 소스를 받으십시오. [v0.3.4 실행 ZIP 다운로드](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.4/ArubaClientLiveTracker_v0.3.4_windows_x64.zip) · [체크섬 및 대응 소스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.4). 게시 여부와 실제 다운로드 검증 결과는 [검증 기록](docs/BUILD_VALIDATION_KO.md)을 확인하십시오.
 
 1. 게시된 `ArubaClientLiveTracker_v0.3.4_windows_x64.zip`과 `.sha256`을 받아 해시를 비교합니다.
 2. ZIP 전체를 사용자 폴더에 풀고 `ArubaClientLiveTracker/ArubaClientLiveTracker.exe`를 실행합니다. Python 설치와 관리자 권한은 필요하지 않습니다.
