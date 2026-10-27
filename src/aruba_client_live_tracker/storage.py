@@ -6,6 +6,7 @@ Observation timestamps are preserved separately from collection-attempt timestam
 from __future__ import annotations
 
 import csv
+import heapq
 import html
 import json
 import os
@@ -13,11 +14,11 @@ import re
 import sqlite3
 import tempfile
 import threading
-from bisect import bisect_right
 from collections.abc import Iterable
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -167,8 +168,28 @@ def _read_history_record(encoded: str, *, event: bool = False) -> dict:
                          '기존 DB를 보존하고 다른 이력을 선택하거나 백업을 확인하세요.') from exc
 
 
+class ReportCancelled(RuntimeError):
+    """The operator closed the report dialog before publication."""
+
+
+def _check_cancel(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise ReportCancelled("보고서 저장을 취소했습니다. 기존 보고서는 보존했습니다.")
+
+
+def _observation_record(row) -> dict:
+    item = dict(row)
+    item["diagnostics"] = _read_diagnostics(item.get("diagnostics", "[]"))
+    encoded = item.pop("observation")
+    parsed = _read_history_record(encoded) if encoded is not None else {}
+    parsed["observed_at"] = parsed.get("collected_at")
+    parsed.update(item)
+    return parsed
+
+
 @contextmanager
-def _report_output(destination: Path, encoding: str, newline: str | None = None):
+def _report_output(destination: Path, encoding: str, newline: str | None = None,
+                   cancel_event: threading.Event | None = None):
     """Publish a complete report only after its temporary sibling is flushed."""
     fd, name = tempfile.mkstemp(prefix='.report-', suffix='.tmp', dir=destination.parent)
     os.close(fd)
@@ -178,6 +199,7 @@ def _report_output(destination: Path, encoding: str, newline: str | None = None)
             yield handle
             handle.flush()
             os.fsync(handle.fileno())
+        _check_cancel(cancel_event)
         os.replace(temporary, destination)
     finally:
         temporary.unlink(missing_ok=True)
@@ -301,17 +323,70 @@ class HistoryStore:
                 "AND (? IS NULL OR collected_at <= ?) ORDER BY id",
                 (session_id, first, first, last, last),
             ).fetchall()
-        output = []
-        for row in rows:
-            item = dict(row)
-            item["diagnostics"] = _read_diagnostics(item.get("diagnostics", "[]"))
-            encoded = item.pop("observation")
-            parsed = _read_history_record(encoded) if encoded is not None else {}
-            # Distinguish a successful field's timestamp from the poll-attempt time.
-            parsed["observed_at"] = parsed.get("collected_at")
-            parsed.update(item)
-            output.append(parsed)
-        return output
+        return [_observation_record(row) for row in rows]
+
+    @contextmanager
+    def _reader(self, session_ids: Iterable[int], cancel_event: threading.Event | None = None):
+        """A private WAL snapshot never holds the collection connection's lock."""
+        ids = list(session_ids)
+        if not ids or any(type(identifier) is not int for identifier in ids):
+            raise ValueError("내보낼 추적 이력을 선택하십시오.")
+        ids = list(dict.fromkeys(ids))
+        with self._lock:
+            self._ensure_open()
+        connection = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True, timeout=.1)
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.set_progress_handler(lambda: int(cancel_event is not None and cancel_event.is_set()), 1000)
+            connection.execute("CREATE TEMP TABLE selected_sessions(id INTEGER PRIMARY KEY)")
+            connection.executemany("INSERT INTO selected_sessions VALUES (?)", ((identifier,) for identifier in ids))
+            connection.commit()
+            connection.execute("BEGIN")
+            sessions = {row["id"]: dict(row) for row in connection.execute(
+                "SELECT s.* FROM sessions s JOIN selected_sessions chosen ON chosen.id=s.id")}
+            if len(sessions) != len(ids):
+                raise ValueError("선택한 추적 이력을 찾을 수 없습니다.")
+            _check_cancel(cancel_event)
+            yield connection, {identifier: sessions[identifier] for identifier in ids}
+        except sqlite3.OperationalError:
+            _check_cancel(cancel_event)
+            raise
+        finally:
+            connection.close()
+
+    def history_preview(self, session_ids: Iterable[int], start: str | None = None,
+                        end: str | None = None, limit: int = 200) -> tuple[list[dict], list[dict], int, int]:
+        """Return exact counts but decode only the latest visible records."""
+        if not 1 <= limit <= 200:
+            raise ValueError("이력 미리보기 범위를 확인하세요.")
+        first, last = self._period(start, end)
+        with self._reader(session_ids) as (connection, sessions):
+            ranks = {identifier: rank for rank, identifier in enumerate(sessions)}
+            output, counts = [], []
+            for table, stamp in (("polls", "collected_at"), ("events", "at")):
+                where = f"FROM {table} WHERE session_id = ?"
+                args = []
+                if first:
+                    where += f" AND {stamp} >= ?"
+                    args.append(first)
+                if last:
+                    where += f" AND {stamp} <= ?"
+                    args.append(last)
+                counts.append(sum(connection.execute("SELECT COUNT(*) " + where, (identifier, *args)).fetchone()[0]
+                                  for identifier in sessions))
+                cursors = [connection.execute("SELECT * " + where + f" ORDER BY {stamp} DESC,id DESC LIMIT ?",
+                                              (identifier, *args, limit)) for identifier in sessions]
+                # Each index cursor starts at its newest row. Merge lazily so a
+                # million old polls never become Python objects or a SQL sort.
+                rows = list(islice(heapq.merge(*cursors,
+                                              key=lambda row: (row[stamp], ranks[row["session_id"]], row["id"]),
+                                              reverse=True), limit))
+                if table == "polls":
+                    output.append([_observation_record(row) for row in reversed(rows)])
+                else:
+                    output.append([dict(_read_history_record(row["data"], event=True),
+                                        id=row["id"], session_id=row["session_id"]) for row in reversed(rows)])
+        return output[0], output[1], counts[0], counts[1]
 
     def events(self, session_id: int, start: str | None = None,
                end: str | None = None) -> list[dict]:
@@ -407,91 +482,97 @@ class HistoryStore:
         return destination
 
     def _combined_rows(self, session_ids: Iterable[int], start: str | None,
-                       end: str | None) -> list[list[Any]]:
-        """Snapshot all selected sessions before any report file is opened.
+                       end: str | None, cancel_event: threading.Event | None = None):
+        """Stream one consistent timeline using two independent ordered cursors.
 
-        Identity columns describe the last known target, never a new measurement.
-        A failed poll/event without a preceding observation uses only the query.
+        The identity cursor advances through prior observations, including all
+        observations at the current instant, matching the existing report's
+        last-known-identity semantics without retaining every historical row.
         """
-        self._period(start, end)
-        ids = list(session_ids)
-        if not ids or any(type(session_id) is not int for session_id in ids):
-            raise ValueError("내보낼 추적 이력을 선택하십시오.")
-        ids = list(dict.fromkeys(ids))
-        timeline: list[tuple[str, int, int, list[Any]]] = []
-        with self._lock:
-            self._ensure_open()
-            # Resolve the whole selection first: an invalid ID must never be omitted.
-            sessions = [self._session(session_id) for session_id in ids]
-            for session in sessions:
-                session_id = session["id"]
-                observations = self.observations(session_id, start, end)
-                events = self.events(session_id, start, end)
-                history = sorted(self.observations(session_id),
-                                 key=lambda row: (row["collected_at"], row["id"]))
-                query_identity: dict[str, str] = {}
+        first, last = self._period(start, end)
+        with self._reader(session_ids, cancel_event) as (connection, sessions):
+            known = {}
+            for identifier, session in sessions.items():
+                identity = {}
                 try:
                     target = parse_target(session["query"])
-                    query_identity[target.kind] = target.value
+                    identity[target.kind] = target.value
                 except ValueError:
                     pass
-                identity_times: list[str] = []
-                identities: list[tuple[dict[str, Any], str | None]] = []
-                known: dict[str, Any] = dict(query_identity)
-                for previous in history:
-                    if previous.get("ip") or previous.get("mac"):
-                        known.update({key: previous[key] for key in ("ip", "mac") if previous.get(key)})
-                        identity_times.append(previous["collected_at"])
-                        identities.append((dict(known), previous.get("observed_at")))
-
-                def identity(at: str | None) -> list[Any]:
-                    known = query_identity
-                    observed_at = None
-                    if at is not None:
-                        index = bisect_right(identity_times, at) - 1
-                        if index >= 0:
-                            known, observed_at = identities[index]
-                    return [session_id, session["query"], known.get("ip"), known.get("mac"), observed_at]
-
-                for row in observations:
-                    values = [*identity(row["collected_at"]), "관측", row["collected_at"],
-                              row.get("observed_at"), _OUTCOMES.get(row["outcome"], row["outcome"]),
-                              bool(session["simulated"]), row["error"],
-                              *[_field_value(row, key) for key, _ in _FIELDS],
-                              row.get("field_status"), row.get("evidence"),
-                              None, None, "원인 미확인", None, *_diagnostic_values(row)]
-                    timeline.append((row["collected_at"], 0, row["id"], values))
-                for event in events:
-                    at = _instant(event["at"])
-                    values = [*identity(at), "이벤트", event["at"], None, event["severity"],
-                              bool(session["simulated"]), None, *[None for _ in _FIELDS],
-                              None, None, event["message"], event["facts"], event["hypothesis"],
-                              event["recommendation"], *[None for _ in _DIAGNOSTIC_FIELDS]]
-                    timeline.append((at, 1, event["id"], values))
-                if not observations and not events:
-                    values = [*identity(None), "세션", None, None, "기간 내 기록 없음",
-                              bool(session["simulated"]), None, *[None for _ in _FIELDS],
-                              None, None, None, None, "원인 미확인", None,
-                              *[None for _ in _DIAGNOSTIC_FIELDS]]
-                    timeline.append(("~", 2, session_id, values))
-        timeline.sort(key=lambda entry: entry[:3])
-        return [entry[3] for entry in timeline]
+                known[identifier] = (identity, None)
+            identities = iter(connection.execute(
+                "SELECT p.* FROM polls p JOIN selected_sessions chosen ON chosen.id=p.session_id "
+                "WHERE (? IS NULL OR collected_at <= ?) ORDER BY collected_at,p.id", (last, last)))
+            previous = next(identities, None)
+            args = (first, first, last, last)
+            timeline = connection.execute(
+                "SELECT p.collected_at stamp,0 kind,p.id,p.session_id,p.observation,p.diagnostics,"
+                "p.outcome,p.error,NULL data FROM polls p JOIN selected_sessions c ON c.id=p.session_id "
+                "WHERE (? IS NULL OR p.collected_at >= ?) AND (? IS NULL OR p.collected_at <= ?) "
+                "UNION ALL SELECT e.at stamp,1 kind,e.id,e.session_id,NULL,NULL,NULL,NULL,e.data "
+                "FROM events e JOIN selected_sessions c ON c.id=e.session_id "
+                "WHERE (? IS NULL OR e.at >= ?) AND (? IS NULL OR e.at <= ?) ORDER BY 1,2,3",
+                (*args, *args))
+            emitted = set()
+            for record in timeline:
+                _check_cancel(cancel_event)
+                while previous is not None and previous["collected_at"] <= record["stamp"]:
+                    _check_cancel(cancel_event)
+                    observation = _observation_record(previous)
+                    identifier = previous["session_id"]
+                    if observation.get("ip") or observation.get("mac"):
+                        identity = dict(known[identifier][0])
+                        identity.update({key: observation[key] for key in ("ip", "mac")
+                                         if observation.get(key)})
+                        known[identifier] = identity, observation.get("observed_at")
+                    previous = next(identities, None)
+                identifier = record["session_id"]
+                session = sessions[identifier]
+                identity, observed_at = known[identifier]
+                prefix = [identifier, session["query"], identity.get("ip"), identity.get("mac"), observed_at]
+                emitted.add(identifier)
+                if record["kind"] == 0:
+                    row = _observation_record(dict(record, collected_at=record["stamp"]))
+                    yield [*prefix, "관측", row["collected_at"], row.get("observed_at"),
+                           _OUTCOMES.get(row["outcome"], row["outcome"]), bool(session["simulated"]), row["error"],
+                           *[_field_value(row, key) for key, _ in _FIELDS], row.get("field_status"),
+                           row.get("evidence"), None, None, "원인 미확인", None, *_diagnostic_values(row)]
+                else:
+                    event = _read_history_record(record["data"], event=True)
+                    yield [*prefix, "이벤트", event["at"], None, event["severity"], bool(session["simulated"]),
+                           None, *[None for _ in _FIELDS], None, None, event["message"], event["facts"],
+                           event["hypothesis"], event["recommendation"], *[None for _ in _DIAGNOSTIC_FIELDS]]
+            for identifier in sorted(set(sessions) - emitted):
+                _check_cancel(cancel_event)
+                session = sessions[identifier]
+                identity = {}
+                try:
+                    target = parse_target(session["query"])
+                    identity[target.kind] = target.value
+                except ValueError:
+                    pass
+                yield [identifier, session["query"], identity.get("ip"), identity.get("mac"), None,
+                       "세션", None, None, "기간 내 기록 없음", bool(session["simulated"]), None,
+                       *[None for _ in _FIELDS], None, None, None, None, "원인 미확인", None,
+                       *[None for _ in _DIAGNOSTIC_FIELDS]]
 
     def export_many_csv(self, session_ids: Iterable[int], path: Path,
-                        start: str | None = None, end: str | None = None) -> Path:
+                        start: str | None = None, end: str | None = None, *,
+                        cancel_event: threading.Event | None = None) -> Path:
         """Export selected sessions as one chronological, spreadsheet-safe timeline."""
-        rows = self._combined_rows(session_ids, start, end)
+        rows = self._combined_rows(session_ids, start, end, cancel_event)
         destination = Path(path)
-        with _report_output(destination, encoding="utf-8-sig", newline="") as handle:
+        with _report_output(destination, encoding="utf-8-sig", newline="", cancel_event=cancel_event) as handle:
             writer = csv.writer(handle)
             writer.writerow(_COMBINED_HEADERS)
             writer.writerows([_csv_safe(value) for value in row] for row in rows)
         return destination
 
     def export_many_html(self, session_ids: Iterable[int], path: Path,
-                         start: str | None = None, end: str | None = None) -> Path:
+                         start: str | None = None, end: str | None = None, *,
+                         cancel_event: threading.Event | None = None) -> Path:
         """Export the same merged timeline with all caller-controlled values escaped."""
-        rows = self._combined_rows(session_ids, start, end)
+        rows = self._combined_rows(session_ids, start, end, cancel_event)
 
         def escape(value: Any) -> str:
             return html.escape(_display(value), quote=True)
@@ -513,13 +594,13 @@ class HistoryStore:
                   "<section><table><thead><tr>"]
         pieces.extend(f"<th>{escape(label)}</th>" for label in _COMBINED_HEADERS)
         pieces.append("</tr></thead><tbody>")
-        for row in rows:
-            pieces.append("<tr>" + "".join(f"<td>{escape(value)}</td>" for value in row) + "</tr>")
-        pieces.append("</tbody></table></section><p>이 보고서는 로컬에서 생성되었습니다. "
-                      "외부 전송 기능은 없습니다.</p></html>")
         destination = Path(path)
-        with _report_output(destination, encoding="utf-8") as handle:
+        with _report_output(destination, encoding="utf-8", cancel_event=cancel_event) as handle:
             handle.write("".join(pieces))
+            for row in rows:
+                handle.write("<tr>" + "".join(f"<td>{escape(value)}</td>" for value in row) + "</tr>")
+            handle.write("</tbody></table></section><p>이 보고서는 로컬에서 생성되었습니다. "
+                         "외부 전송 기능은 없습니다.</p></html>")
         return destination
 
     def close(self) -> None:

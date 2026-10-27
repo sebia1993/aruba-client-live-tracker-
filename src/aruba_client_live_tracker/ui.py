@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import queue
 import threading
 from collections import deque
 from dataclasses import replace
@@ -400,6 +401,15 @@ class HistoryDialog(QDialog):
         self.setWindowTitle("추적 이력 · 로컬 보고서")
         self.resize(1000, 600)
         self.store = store
+        self._export_thread = None
+        self._export_cancel = threading.Event()
+        self._export_results = queue.Queue()
+        self._history_closing = False
+        cancellation = self._export_cancel
+        self.destroyed.connect(lambda *_: cancellation.set())
+        self._export_timer = QTimer(self)
+        self._export_timer.setInterval(50)
+        self._export_timer.timeout.connect(self._finish_export)
         layout = QVBoxLayout(self)
         self.grid = table(["번호", "검색 조건", "모드", "시작 시각", "종료 시각"])
         self.grid.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -418,9 +428,11 @@ class HistoryDialog(QDialog):
         period.addRow("기간 끝 (ISO 시각)", self.end_edit)
         layout.addLayout(period)
         controls = QHBoxLayout()
+        self._history_controls = []
         for label, callback in (("선택 이력 보기", self.show_history), ("CSV 내보내기", lambda: self.export("csv")), ("HTML 내보내기", lambda: self.export("html"))):
             button = QPushButton(label)
             button.clicked.connect(callback)
+            self._history_controls.append(button)
             controls.addWidget(button)
         layout.addLayout(controls)
         self.preview = QTextEdit()
@@ -454,8 +466,7 @@ class HistoryDialog(QDialog):
             return
         session, start, end = selected
         try:
-            observations = [dict(row, session_id=sid) for sid in session for row in self.store.observations(sid, start, end)]
-            events = [dict(row, session_id=sid) for sid in session for row in self.store.events(sid, start, end)]
+            observations, events, observation_count, event_count = self.store.history_preview(session, start, end)
         except (ValueError, OSError, sqlite3.Error) as exc:
             code = 'HISTORY_DATA_INVALID' if isinstance(exc, ValueError) else 'HISTORY_READ_FAILED'
             self.preview.setPlainText(f'{code}: 이력을 읽을 수 없습니다. 기존 DB를 보존하고 다른 이력을 선택하거나 '
@@ -463,7 +474,7 @@ class HistoryDialog(QDialog):
             return
         observations.sort(key=lambda row: row.get("collected_at", ""))
         events.sort(key=lambda row: row.get("at", ""))
-        text = [f"관측 {len(observations)}건 · 이벤트 {len(events)}건", "시각은 저장된 ISO 시각이며 원인은 별도 검증이 필요합니다."]
+        text = [f"관측 {observation_count}건 · 이벤트 {event_count}건", "시각은 저장된 ISO 시각이며 원인은 별도 검증이 필요합니다."]
         for row in observations[-200:]:
             text.append(f"세션 {row['session_id']} | {display_time(row.get('collected_at'))} | {row.get('outcome')} | AP {row.get('ap_name') or '확인 불가'} | SNR {row.get('snr', '확인 불가')} | {row.get('error', '')}")
         for event in events[-200:]:
@@ -471,7 +482,8 @@ class HistoryDialog(QDialog):
         self.preview.setPlainText("\n".join(text))
 
     def export(self, extension: str):
-        import sqlite3
+        if self.export_running:
+            return
         selected = self.selection()
         if not selected:
             return
@@ -479,13 +491,63 @@ class HistoryDialog(QDialog):
         if not path:
             return
         session, start, end = selected
+        self._export_cancel.clear()
+        self._history_closing = False
+        exporter = getattr(self.store, f"export_many_{extension}")
+        cancellation, results = self._export_cancel, self._export_results
+
+        def run_export():
+            try:
+                exporter(session, Path(path), start=start, end=end, cancel_event=cancellation)
+            except Exception as exc:
+                # Only the GUI thread reads the result and touches Qt objects.
+                from .storage import ReportCancelled
+                results.put("cancelled" if isinstance(exc, ReportCancelled) else "failed")
+            else:
+                results.put("complete")
+
+        self.preview.setPlainText("보고서를 저장하는 중입니다. 이 창을 닫으면 저장을 취소합니다.")
+        for button in self._history_controls:
+            button.setEnabled(False)
+        self._export_thread = threading.Thread(target=run_export, name="history-report", daemon=True)
+        self._export_thread.start()
+        self._export_timer.start()
+
+    @property
+    def export_running(self):
+        return self._export_thread is not None and self._export_thread.is_alive()
+
+    def _finish_export(self):
+        if self.export_running:
+            return
         try:
-            getattr(self.store, f"export_many_{extension}")(session, Path(path), start=start, end=end)
-        except (ValueError, OSError, sqlite3.Error):
+            result = self._export_results.get_nowait()
+        except queue.Empty:
+            return
+        self._export_timer.stop()
+        for button in self._history_controls:
+            button.setEnabled(True)
+        if self._history_closing or result == "cancelled":
+            return
+        if result == "failed":
+            self.preview.setPlainText("REPORT_WRITE_FAILED: 보고서를 저장하지 못했습니다. 기존 보고서는 보존했습니다.")
             QMessageBox.warning(self, "내보내기 실패", "REPORT_WRITE_FAILED: 보고서를 저장하지 못했습니다. "
                                 "기존 보고서는 보존했습니다. 이력 상태, 저장 공간과 권한을 확인하세요.")
-            return
-        QMessageBox.information(self, "내보내기 완료", "보고서를 선택한 PC 경로에 저장했습니다. 외부로 전송하지 않았습니다.")
+        else:
+            self.preview.setPlainText("보고서를 선택한 PC 경로에 저장했습니다. 외부로 전송하지 않았습니다.")
+            QMessageBox.information(self, "내보내기 완료", "보고서를 선택한 PC 경로에 저장했습니다. 외부로 전송하지 않았습니다.")
+
+    def reject(self):
+        self._history_closing = True
+        self._export_cancel.set()
+        self._export_timer.stop()
+        super().reject()
+
+    def closeEvent(self, event):
+        self._history_closing = True
+        self._export_cancel.set()
+        self._export_timer.stop()
+        super().closeEvent(event)
 
 
 class _Dashboard(QMainWindow):

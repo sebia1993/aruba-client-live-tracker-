@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aruba-client-live-tracker"
-version = "0.3.7"
+version = "0.3.8"
 description = "한국어 ArubaOS 8 클라이언트 추적 데스크톱"
 requires-python = ">=3.12"
 license = "MIT"
