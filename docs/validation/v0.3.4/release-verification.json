@@ -1,0 +1,117 @@
+{
+  "checked_at": "2026-10-27T03:56:48.582239+00:00",
+  "version": "0.3.4",
+  "success": true,
+  "checks": {
+    "application_sha256": {
+      "file": "ArubaClientLiveTracker_v0.3.4_windows_x64.zip",
+      "bytes": 43361869,
+      "sha256": "621f9048232dc216b5a3293686e7f974c63bbddbfcbfad9816df95e6e5e47563",
+      "zip_crc": "passed",
+      "download_url": "https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.4/ArubaClientLiveTracker_v0.3.4_windows_x64.zip"
+    },
+    "application": {
+      "windows_tests": 351,
+      "source_files_match_checkout_normalized_newlines": 18,
+      "pe": {
+        "machine": "AMD64",
+        "format": "PE32+",
+        "subsystem": "Windows GUI",
+        "execution_levels": [
+          "asInvoker"
+        ]
+      },
+      "qt_korean_translation": "ArubaClientLiveTracker/_internal/PySide6/translations/qtbase_ko.qm",
+      "licensed_packages": 10,
+      "required_source_files": 31,
+      "smoke": {
+        "single": {
+          "success": true,
+          "reason": "GUI 생성·1대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+          "target_count": 1,
+          "observation_count": 5,
+          "target_observations": {
+            "192.0.2.100": 5
+          },
+          "independent_macs": 1
+        },
+        "multi": {
+          "success": true,
+          "reason": "GUI 생성·10대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+          "target_count": 10,
+          "observation_count": 50,
+          "target_observations": {
+            "192.0.2.100": 5,
+            "192.0.2.101": 5,
+            "192.0.2.102": 5,
+            "192.0.2.103": 5,
+            "192.0.2.104": 5,
+            "192.0.2.105": 5,
+            "192.0.2.106": 5,
+            "192.0.2.107": 5,
+            "192.0.2.108": 5,
+            "192.0.2.109": 5
+          },
+          "independent_macs": 10
+        }
+      },
+      "sensitive_file_scan": {
+        "members_scanned": 719,
+        "forbidden_runtime_files": 0,
+        "scope": "All filenames; key/token patterns in text members <=5 MB. Does not prove absence of arbitrary secrets."
+      }
+    },
+    "sources_sha256": {
+      "file": "ArubaClientLiveTracker_v0.3.4_third_party_sources.zip",
+      "bytes": 72212226,
+      "sha256": "47299f6953eb9825859f4ab2e97a56018c1ae3596d3bcd7cb6b1c286a321dea5",
+      "zip_crc": "passed",
+      "download_url": "https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.4/ArubaClientLiveTracker_v0.3.4_third_party_sources.zip"
+    },
+    "sources": {
+      "verified_source_archives": 6,
+      "manifest": [
+        {
+          "file": "qtbase-everywhere-src-6.8.3.tar.xz",
+          "source": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz",
+          "sha256": "56001b905601bb9023d399f3ba780d7fa940f3e4861e496a7c490331f49e0b80"
+        },
+        {
+          "file": "qtimageformats-everywhere-src-6.8.3.tar.xz",
+          "source": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtimageformats-everywhere-src-6.8.3.tar.xz",
+          "sha256": "049bfb99845e4801672aca07c3c4fc4c140f932a3a33faa899419579e33ef1c8"
+        },
+        {
+          "file": "qtsvg-everywhere-src-6.8.3.tar.xz",
+          "source": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtsvg-everywhere-src-6.8.3.tar.xz",
+          "sha256": "35eb516460f00f264eb504baa253432384351cf23fb9980a5857190e8deef438"
+        },
+        {
+          "file": "qttranslations-everywhere-src-6.8.3.tar.xz",
+          "source": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qttranslations-everywhere-src-6.8.3.tar.xz",
+          "sha256": "c3c61d79c3d8fe316a20b3617c64673ce5b5519b2e45535f49bee313152fa531"
+        },
+        {
+          "file": "pyside-setup-everywhere-src-6.8.3.tar.xz",
+          "source": "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.8.3-src/pyside-setup-everywhere-src-6.8.3.tar.xz",
+          "sha256": "d2c896f7f1a6a7ea4c9f98cfe317272fd139703ddf612b86999f09e48aeef0e6"
+        },
+        {
+          "file": "paramiko-5.0.0.tar.gz",
+          "source": "https://files.pythonhosted.org/packages/62/93/dcc25d52f49022ae6175d15e6bd751f1acc99b98bc61fc55e5155a7be2e7/paramiko-5.0.0.tar.gz",
+          "sha256": "36763b5b95c2a0dcfdf1abc48e48156ee425b21efe2f0e787c2dd5a95c0e5e79"
+        }
+      ]
+    }
+  },
+  "source_commit": "2ffab2fc982d02d2ae1b60ade604002693230a5e",
+  "release_tag": "v0.3.4",
+  "release_run_id": 40446692668,
+  "release_url": "https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.4",
+  "release_workflow_url": "https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446692668",
+  "verification_boundaries": {
+    "actual_aruba_hardware_verified": false,
+    "actual_user_root_cause_confirmed": false,
+    "windows_11_physical_display_verified": false
+  }
+}

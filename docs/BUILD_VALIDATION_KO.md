@@ -14,7 +14,26 @@
 
 공식 구조를 참고한 RFC 5737/RFC 3849 가상 자료를 사용합니다. 문서의 IPv6 예시는 일부 행을 생략하여 Total Switches와 표시 행 수가 다르므로 완전한 응답 fixture로 복제하지 않았습니다. 새 단일/분리 표 TCP loopback SSH 회귀는 이전 파서에서 2건 실패, 수정 파서에서 통과했습니다. 실제 IPv6 네트워크 접속을 검증했다는 뜻은 아닙니다. GUI 회귀는 이전 발견 오류·현재 성공/실패·반복 검사를 확인합니다.
 
-로컬 전체 351개 테스트(25.28초), Ruff, 보안 검사와 독립 리뷰를 통과했습니다. 소스 GUI는 단일 5회·10대 각 5회 수집과 SQLite 저장·정상 종료를 확인했습니다. 고정 의존성 25개의 공개 공지에서 영향 패키지는 0개였습니다. Windows CI·EXE·공개 다운로드 검증 결과는 실행 후 이 문서에 기록합니다. 이전 증거는 [v0.3.3 기록](validation/v0.3.3/BUILD_VALIDATION_KO.md)에 보존하며 이번 버전의 증거로 대체하지 않습니다.
+로컬 전체 351개 테스트(25.28초), Ruff, 보안 검사와 독립 리뷰를 통과했습니다. 소스 GUI는 단일 5회·10대 각 5회 수집과 SQLite 저장·정상 종료를 확인했습니다. 고정 의존성 25개의 공개 공지에서 영향 패키지는 0개였습니다. Windows CI와 EXE 검사도 통과했습니다. 공개 릴리스 ZIP을 실제 다운로드하여 체크섬과 구성을 검증했습니다. 이전 증거는 [v0.3.3 기록](validation/v0.3.3/BUILD_VALIDATION_KO.md)에 보존하며 이번 버전의 증거로 대체하지 않습니다.
+
+## Windows CI 결과
+
+커밋 `2ffab2fc982d02d2ae1b60ade604002693230a5e`의 [CI 40446346316](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446346316)는 Ubuntu와 Windows 모두 성공했습니다. Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0에서 초기 351개(48.37초), 빌드 재검사 351개(47.39초)가 통과했습니다. Ubuntu도 351개(24.24초)가 통과했으며 모든 JUnit의 실패·오류·건너뛰기는 0입니다.
+
+실제 EXE 단일 데모는 1대 5회, 다중 데모는 10대 각 5회(총 50회), 독립 MAC 10개와 SQLite 저장·정상 종료를 확인했습니다. 두 운영체제의 소스 데모도 동일한 범위를 통과했습니다. [CI 검증 JSON](validation/v0.3.4/ci-verification.json)에 실제 아티팩트와 로그를 대조한 결과를 보존합니다. 같은 커밋에 v0.3.4 태그를 게시했습니다. 앞선 문서 갱신 전 커밋의 두 CI는 중복 실행을 취소했고 위 최종 커밋의 결과를 사용합니다.
+
+## 공개 릴리스와 다운로드 검증
+
+동일 커밋의 `v0.3.4` 태그에서 [Release 40446692668](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446692668)가 351개(48.61초), Ruff, 실제 EXE 단일/10대 검사를 통과하고 [공개 릴리스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.4)를 게시했습니다. JUnit의 실패·오류·건너뛰기는 0입니다. 릴리스 검증 아티팩트의 SHA-256과 ZIP CRC도 확인했습니다.
+
+| 파일 | 바이트 | SHA-256 |
+|---|---:|---|
+| `ArubaClientLiveTracker_v0.3.4_windows_x64.zip` | 43,361,869 | `621f9048232dc216b5a3293686e7f974c63bbddbfcbfad9816df95e6e5e47563` |
+| `ArubaClientLiveTracker_v0.3.4_third_party_sources.zip` | 72,212,226 | `47299f6953eb9825859f4ab2e97a56018c1ae3596d3bcd7cb6b1c286a321dea5` |
+
+실제 공개 다운로드를 사용한 [검증 JSON](validation/v0.3.4/release-verification.json)은 ZIP CRC, AMD64 PE32+ Windows GUI EXE, 일반 사용자 asInvoker, Qt 한국어 번역, 라이선스 10개, 대응 소스 6개와 고정 해시, 실행 소스 18개 일치(개행 정규화), 새 회귀 검사를 포함한 필수 소스 31개, 351개 JUnit 및 단일/10대 실행 증거를 확인합니다. ZIP 멤버 719개의 이름·제한된 텍스트 패턴 검사에서 금지된 로컬 설정/DB/운영 로그 파일은 0개였습니다. 모든 종류의 비밀정보 부재를 증명하는 검사는 아니며 실제 운영 자료를 사용하지 않았습니다.
+
+태그 이후 저장소 변경은 검증 결과와 문서뿐이며 실행 코드·의존성은 동일합니다. 기존 프로그램을 종료하고 새 ZIP을 별도 폴더에 전체 압축 해제해 실행합니다. 실제 MM에서 보고된 문제가 해결됐는지는 아직 확인하지 않았습니다.
 
 ## 공식 근거와 한계
 

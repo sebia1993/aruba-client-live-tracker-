@@ -1,0 +1,216 @@
+{
+  "version": "0.3.4",
+  "success": true,
+  "source_commit": "2ffab2fc982d02d2ae1b60ade604002693230a5e",
+  "ci_run_id": 40446346316,
+  "ci_url": "https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446346316",
+  "status": "completed",
+  "conclusion": "success",
+  "verified_at": "2026-10-27T03:54:35.619383+00:00",
+  "platform": "Windows Server 2025 x64",
+  "python": "3.12.10",
+  "pyinstaller": "6.16.0",
+  "pyinstaller_hooks": "2025.9",
+  "jobs": {
+    "Linux": {
+      "id": 121998450878,
+      "name": "verify (ubuntu-latest)",
+      "url": "https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446346316/job/121998450878",
+      "conclusion": "success",
+      "started_at": "2026-10-27T03:50:00Z",
+      "completed_at": "2026-10-27T03:50:56Z",
+      "platform": "Ubuntu 24.04 x64",
+      "python": "3.12.15",
+      "qt_qpa_platform": "offscreen",
+      "ruff": "passed"
+    },
+    "Windows": {
+      "id": 121998451177,
+      "name": "verify (windows-latest)",
+      "url": "https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446346316/job/121998451177",
+      "conclusion": "success",
+      "started_at": "2026-10-27T03:50:01Z",
+      "completed_at": "2026-10-27T03:53:09Z",
+      "platform": "Windows Server 2025 Datacenter x64",
+      "python": "3.12.10",
+      "qt_qpa_platform": "offscreen",
+      "ruff": "passed"
+    }
+  },
+  "tests": {
+    "artifacts/pytest-Linux.xml": [
+      {
+        "tests": "351",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "24.234"
+      }
+    ],
+    "artifacts/pytest-windows-build.xml": [
+      {
+        "tests": "351",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "47.308"
+      }
+    ],
+    "artifacts/pytest-Windows.xml": [
+      {
+        "tests": "351",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "48.304"
+      }
+    ],
+    "dist/validation/pytest-windows-build.xml": [
+      {
+        "tests": "351",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0",
+        "time": "47.308"
+      }
+    ]
+  },
+  "smoke": {
+    "windows-exe-multi-smoke": {
+      "success": true,
+      "reason": "GUI 생성·10대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+      "target_count": 10,
+      "observation_count": 50,
+      "target_observations": {
+        "192.0.2.100": 5,
+        "192.0.2.101": 5,
+        "192.0.2.102": 5,
+        "192.0.2.103": 5,
+        "192.0.2.104": 5,
+        "192.0.2.105": 5,
+        "192.0.2.106": 5,
+        "192.0.2.107": 5,
+        "192.0.2.108": 5,
+        "192.0.2.109": 5
+      },
+      "independent_macs": 10
+    },
+    "windows-exe-single-smoke": {
+      "success": true,
+      "reason": "GUI 생성·1대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+      "target_count": 1,
+      "observation_count": 5,
+      "target_observations": {
+        "192.0.2.100": 5
+      },
+      "independent_macs": 1
+    }
+  },
+  "source_smoke": {
+    "Linux": {
+      "multi": {
+        "success": true,
+        "reason": "GUI 생성·10대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+        "target_count": 10,
+        "observation_count": 50,
+        "target_observations": {
+          "192.0.2.100": 5,
+          "192.0.2.101": 5,
+          "192.0.2.102": 5,
+          "192.0.2.103": 5,
+          "192.0.2.104": 5,
+          "192.0.2.105": 5,
+          "192.0.2.106": 5,
+          "192.0.2.107": 5,
+          "192.0.2.108": 5,
+          "192.0.2.109": 5
+        },
+        "independent_macs": 10
+      },
+      "single": {
+        "success": true,
+        "reason": "GUI 생성·1대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+        "target_count": 1,
+        "observation_count": 5,
+        "target_observations": {
+          "192.0.2.100": 5
+        },
+        "independent_macs": 1
+      }
+    },
+    "Windows": {
+      "multi": {
+        "success": true,
+        "reason": "GUI 생성·10대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+        "target_count": 10,
+        "observation_count": 50,
+        "target_observations": {
+          "192.0.2.100": 5,
+          "192.0.2.101": 5,
+          "192.0.2.102": 5,
+          "192.0.2.103": 5,
+          "192.0.2.104": 5,
+          "192.0.2.105": 5,
+          "192.0.2.106": 5,
+          "192.0.2.107": 5,
+          "192.0.2.108": 5,
+          "192.0.2.109": 5
+        },
+        "independent_macs": 10
+      },
+      "single": {
+        "success": true,
+        "reason": "GUI 생성·1대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인",
+        "target_count": 1,
+        "observation_count": 5,
+        "target_observations": {
+          "192.0.2.100": 5
+        },
+        "independent_macs": 1
+      }
+    }
+  },
+  "dependency_checks": {
+    "Linux": {
+      "application_version": "0.3.4",
+      "checked_at": "2026-10-27T03:50:24.354646+00:00",
+      "source": "PyPI version JSON advisories",
+      "scope": "패키지 버전 공지 검사이며 내장 네이티브 라이브러리 전체 감사는 아닙니다.",
+      "packages_checked": 25,
+      "listed_advisories": 0,
+      "result": "passed"
+    },
+    "Windows": {
+      "application_version": "0.3.4",
+      "checked_at": "2026-10-27T03:51:44.257445+00:00",
+      "source": "PyPI version JSON advisories",
+      "scope": "패키지 버전 공지 검사이며 내장 네이티브 라이브러리 전체 감사는 아닙니다.",
+      "packages_checked": 25,
+      "listed_advisories": 0,
+      "result": "passed"
+    }
+  },
+  "validation_artifacts": {
+    "Linux": {
+      "id": 12708925981,
+      "name": "validation-Linux",
+      "size_bytes": 9467,
+      "sha256": "e3dadccaa89ef0905827adf27113896a0b4ce358e04b860d7caf7477b6e230ee",
+      "checksum_matches_upload_log": true,
+      "zip_crc_valid": true
+    },
+    "Windows": {
+      "id": 12708103367,
+      "name": "validation-Windows",
+      "size_bytes": 27244,
+      "sha256": "5084109c9f5e028733b2752c0a23a0ac7e341dafdafc9e80364decc211107878",
+      "checksum_matches_upload_log": true,
+      "zip_crc_valid": true
+    }
+  },
+  "verification_boundaries": {
+    "actual_aruba_hardware_verified": false,
+    "windows_11_physical_display_verified": false,
+    "actual_user_root_cause_confirmed": false
+  }
+}

@@ -2,7 +2,7 @@
 
 ArubaOS 8 환경에서 최대 **10대 무선 클라이언트**의 접속 정보, 무선 품질과 AP 변경을 함께 추적하는 한국어 Windows 데스크톱 도구입니다. MM 이름/IP에서 장비 목록을 발견하고 선택한 장비만 검사하여 등록을 돕습니다. 기존 단일 추적과 수동 MM/MD 설정도 사용할 수 있습니다. MM의 `Current switch`를 등록된 MD에 매핑하여 해당 MD만 읽기 전용으로 조회하며, 실행에 클라우드 서비스가 필요하지 않습니다.
 
-v0.3.4는 공식 ArubaOS 8.10 문서의 IPv4 부재/IPv6 장비 행을 지원하고, MM 목록 조회 오류와 선택 장비 검사 결과를 구분합니다. IPv6 표기 차이도 담당 MD 매핑에서 비교합니다. 주소 오류와 불완전한 목록은 계속 거부합니다. 공식 예시의 지원 누락은 확인했지만 사용자가 보고한 장애의 실제 원인과 해결 여부는 실장비 검증이 필요합니다. 자동 검사·Windows EXE·배포 결과는 [현재 검증 기록](docs/BUILD_VALIDATION_KO.md), 이전 배포 증거는 [v0.3.3 기록](docs/validation/v0.3.3/BUILD_VALIDATION_KO.md)에 보존합니다.
+v0.3.4는 공식 ArubaOS 8.10 문서의 IPv4 부재/IPv6 장비 행을 지원하고, MM 목록 조회 오류와 선택 장비 검사 결과를 구분합니다. IPv6 표기 차이도 담당 MD 매핑에서 비교합니다. 주소 오류와 불완전한 목록은 계속 거부합니다. 공식 예시의 지원 누락은 확인했지만 사용자가 보고한 장애의 실제 원인과 해결 여부는 실장비 검증이 필요합니다. Linux·Windows 351개 테스트와 Windows EXE 단일/10대 실행, 공개 다운로드 검증을 통과했습니다. 자동 검사·Windows EXE·배포 결과는 [현재 검증 기록](docs/BUILD_VALIDATION_KO.md), 이전 배포 증거는 [v0.3.3 기록](docs/validation/v0.3.3/BUILD_VALIDATION_KO.md)에 보존합니다.
 
 ![가상 데이터 10대를 동시 추적하는 v0.3.0 Qt 대시보드](docs/assets/v030-multi-dashboard.png)
 
