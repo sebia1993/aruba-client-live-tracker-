@@ -68,7 +68,8 @@ class Tracker:
                             'client_match': 'ClientMatch 이력', 'auth_trace': '인증 이력'}
             for group in ('association', 'client_stats', 'client_table', 'client_trail', 'client_match', 'auth_trace'):
                 status = current.field_status.get(group)
-                if status is None:
+                # Cached history is not a new collection attempt or health transition.
+                if status is None or status.endswith(' · 이전 이력 조회값'):
                     continue
                 if status != '정상':
                     if self.partial_failures.get(group) != status:

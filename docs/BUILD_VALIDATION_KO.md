@@ -1,44 +1,28 @@
-# v0.3.5 빌드와 검증 기록
+# v0.3.6 빌드와 검증 기록
 
-기록일: 2026-10-27. 사용자는 v0.3.4에서도 `SWITCH_TABLE_PARSE_FAILED`와 출력 9행·IP 열 12자·IPv6 열 14자 진단을 보고했습니다. 운영망 원문·주소·계정은 수집하지 않았습니다.
+기록일: 2026-10-27. Windows 11 Pro x64에서 인계 ZIP을 보존하고 공개 기준 커밋 2beb4ed의 수정 19개 파일·새 테스트 2개를 적용했습니다. 처음 실행한 Windows 기준 검사는 466개 통과·패키징 8개 실패(55.42초)로 인계 수치를 재현했습니다.
 
-## 원인 재현과 수정 범위
+## 발견 오류와 수정 근거
 
-공식 ArubaOS 8.10 CLI Reference 물리 1629·3361쪽에 전체 페이지 안내 `--More-- (q) quit (u) pageup (/) search (n) repeat`가 있습니다. 기존 SSH 코드는 `--More--`만 제거하여 남은 `(q) quit (u)` 12자와 `pageup (/) sea` 14자가 주소 셀로 전달됐습니다. 정상 가상 장비 6대 표에 이 안내문을 넣고 실제 루프백 SSH로 수집하여 사용자가 보고한 9행/12/14 오류를 정확히 재현했습니다. 삽입 위치 9행은 재현을 위해 지정한 것이며 사용자 원문을 확인했다는 뜻이 아닙니다.
+공식 show switches/paging 문서, ArubaOS v8.10.0.10 릴리스 노트와 association Flags 문서를 대조했습니다. 구체적인 확인 범위·제한은 [CLI 근거](CLI_COMMANDS_KO.md)에 기록했습니다.
 
-SSH 계층에서 전체 안내문과 바로 뒤의 알려진 지우기 제어를 제거한 후 기존 파서에 전달합니다. 실제 다음 행의 들여쓰기는 유지합니다. 주소 파서를 완화하거나 잘못된 행을 건너뛰지 않으며 새 명령·장비 설정 변경도 없습니다. 한 페이지당 스페이스만 보내고 기존 출력량·페이지 수·시간·취소 제한은 유지합니다.
+합성 표와 실제 루프백 SSH로 첫 머리글의 들여쓰기 손실과 반복 머리글 오인을 재현했습니다. 올바른 단일/분리 표·IPv4/IPv6·None·페이지 경계를 처리하며 주소·중복·건수·완료 검증을 유지합니다. 빈 주소 셀의 9행/0/0은 주소 자체 오류가 아니라 구조 문제로 안내합니다. 실제 사용자가 받은 바이트를 확인한 것이 아니므로 실제 장애 원인이나 해결을 확정하지 않습니다.
 
-## 자동 검증 범위
+## 로컬 검증
 
-수정 전 새 SSH 전송 회귀 10건과 실제 SSH 통합 4건이 실패했고, 수정 후 통과했습니다. 전체/짧은 페이지 안내, TCP 경계별 분할, ANSI, CR·백스페이스 지우기, 같은 줄에 덮어쓴 다음 행, 들여쓰기, 여러 페이지와 일반 데이터 보존을 검사합니다. 실제 루프백 SSH 서버는 스페이스를 받기 전 다음 페이지를 보내지 않습니다. 일반/분리 표 6대 발견과 선택 WLC 검사, 페이지 이후 실제 잘못된 IP/행 수 불일치의 계속 차단을 확인합니다.
+- Python 3.12 x64 전용 가상환경, 실제 import 경로 확인.
+- 최종 로컬 빌드 검사: 567개 통과, 실패·오류·건너뛰기 0. 실제 소요 시간과 항목은 실행 ZIP의 validation/pytest-windows-build.xml에 기록됩니다.
+- Ruff와 diff 공백 검사 통과. 고정 의존성 25개의 공개 버전 공지에서 영향 패키지 0개. 내장 네이티브 라이브러리 전체 감사는 아닙니다.
+- 소스 단일: 1대 5회, 다중: 10대 각 5회, 독립 MAC·SQLite·정상 종료 확인.
+- 실제 Windows 창에서 단일 데모·일시 정지·재개·중지·재시작과 10대 목록을 확인했습니다. Windows 디스플레이 설정을 바꾸어 1920×1080의 실제 100%·125%·150%, 1280×720의 100%를 확인했습니다. 1366×768은 이 PC가 지원하지 않아 직접 검증하지 못했습니다.
+- 낮은 해상도 첫 실행의 높이 초과를 확인해 초기·최소 창 크기를 작업 영역에 맞췄습니다. 910×480 논리 화면을 포함한 단일/다중 10개 회귀가 통과했습니다. 논리 화면 모의 검사는 실제 1366×768 검증을 대신하지 않습니다.
+- 2,100회 합성 수집 반복, 세션 풀 상한·해제 및 실패/실제 해제 구분 회귀는 전체 테스트에 포함됩니다.
+- 실제 SQLite 잠금, 종료 기록/DB close 실패, 보고서 중간 쓰기, 손상 설정/이력, 소스 캐시 중단을 별도 재현했습니다.
 
-로컬 전체 368개 테스트(31.60초), Ruff, 저장소 보안 검사와 독립 리뷰를 통과했습니다. 독립 리뷰는 전체 안내문의 51개 분할 경계에서 두 페이지와 다음 행 들여쓰기를 보존하고 페이지마다 스페이스만 보내는 것도 확인했습니다. 소스 GUI 단일 5회·10대 각 5회 수집과 SQLite 저장·정상 종료를 확인했고, 고정 의존성 25개의 공개 공지에서 영향 패키지는 0개였습니다. Windows CI와 실제 EXE 검사도 통과했습니다. 공개 ZIP의 실제 다운로드·체크섬·구성 검증도 통과했습니다. [v0.3.4 검증 기록](validation/v0.3.4/BUILD_VALIDATION_KO.md)은 별도로 보존합니다.
+빌드 스크립트는 테스트·정적 검사·라이선스·단일/10대 실제 EXE 검사가 성공해야 ZIP을 생성합니다. 실행 ZIP의 validation 폴더에는 해당 빌드의 실제 XML·JSON이 들어 있습니다. 새 폴더 압축 해제와 공개 배포 후 다운로드 결과는 [저장소의 최신 검증 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/BUILD_VALIDATION_KO.md)에서 확인하십시오. 로컬 ZIP과 GitHub runner ZIP은 Python 세부 버전·빌드 환경에 따라 파일 해시가 다를 수 있으므로 각각의 체크섬으로 검사합니다.
 
-## Windows CI 결과
+## 해석 제한
 
-커밋 `1600484cd117ebff2853628f00a78e73152de151`의 [CI 40454672860](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40454672860)는 Ubuntu와 Windows 모두 성공했습니다. Ubuntu 368개(31.207초), Windows 초기 368개(43.942초), Windows 빌드 재검사 368개(44.963초)가 통과했습니다. 시간은 JUnit 기록이며 실패·오류·건너뛰기는 모두 0입니다.
+자동·루프백 자료는 합성입니다. 실제 MM/Standby/MD에서 장비 발견·선택 검사·설정 저장·재시작·IP/MAC 검색·담당 MD 추적은 사용자 확인이 필요합니다. 원문·운영 주소·계정을 요구하거나 실제 장비에 접속하지 않았습니다. 실제 디스플레이 배율 검증과 환경 변수 배율 모의 검증은 구분합니다.
 
-Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0에서 실제 EXE를 빌드했습니다. 단일 데모 1대 5회, 다중 데모 10대 각 5회(총 50회), 독립 MAC 10개와 SQLite 저장·정상 종료를 확인했습니다. 양쪽 운영체제의 소스 데모도 동일하게 통과했습니다. [CI 검증 JSON](validation/v0.3.5/ci-verification.json)에 실제 아티팩트·로그와 해시를 대조한 결과를 보존합니다. 동일 커밋에 v0.3.5 태그를 게시했습니다.
-
-## 공개 릴리스와 다운로드 검증
-
-동일 커밋의 `v0.3.5` 태그에서 [Release 40454982350](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40454982350)가 368개(JUnit 54.019초), Ruff, 실제 EXE 단일/10대 검사를 통과하고 [공개 릴리스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.5)를 게시했습니다. 실패·오류·건너뛰기는 0입니다. 작은 검증 아티팩트의 SHA-256과 ZIP CRC도 업로드 기록과 대조했습니다.
-
-| 파일 | 바이트 | SHA-256 |
-|---|---:|---|
-| `ArubaClientLiveTracker_v0.3.5_windows_x64.zip` | 43,384,484 | `28d465a46e52429ec0a40c8a8edf5ce3032b3a7faa0e6aa29c4b27572b919243` |
-| `ArubaClientLiveTracker_v0.3.5_third_party_sources.zip` | 72,212,226 | `c8d8f295a0aef3c534536065422317bf4a0cadbb561a0159faea8cb88b0bff5a` |
-
-실제 공개 파일을 직접 다운로드한 [검증 JSON](validation/v0.3.5/release-verification.json)은 ZIP CRC, AMD64 PE32+ Windows GUI EXE, 일반 사용자 asInvoker, Qt 한국어 번역, 라이선스 10개, 대응 소스 6개와 고정 해시, 실행 소스 18개 일치(개행 정규화), 페이지 회귀를 포함한 필수 소스 32개, 368개 JUnit 및 단일/10대 실행 증거를 확인합니다. ZIP 멤버 725개의 이름·제한된 텍스트 패턴 검사에서 금지된 로컬 설정/DB/운영 로그 파일은 0개였습니다. 모든 종류의 비밀정보 부재를 증명하는 검사는 아니며 실제 운영 자료를 사용하지 않았습니다.
-
-태그 이후 변경은 검증 문서와 결과뿐이며 실행 코드·의존성은 동일합니다. 기존 EXE를 종료하고 새 ZIP을 별도 폴더에 전체 압축 해제해 실행합니다. 실제 MM에서의 오류 해소는 아직 확인하지 않았습니다.
-
-## 공식 근거와 제한
-
-2026-10-27 다음 공식 문서를 확인했습니다.
-
-- [ArubaOS 8.10 CLI Reference](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/810/ArubaOS-8.x-CLI-Reference-Guide.pdf): 물리 1629·3361쪽 전체 페이지 안내.
-- [show ap arm status](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-ap-arm-status.htm), [show snmp trap-list](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-snmp-trap-lst.htm): 같은 안내문을 보여 주는 공식 HTML. 두 명령을 앱에서 새로 실행한다는 뜻이 아닙니다.
-- [paging](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/paging.htm): 기본 활성화와 세션별 적용. 큰 터미널 크기를 요청해도 페이지 안내가 없다고 가정하지 않습니다.
-
-공식 문서는 안내문을 입증합니다. CR·백스페이스·화면 지우기 바이트와 TCP 분할은 합성 전송 시험이며 실장비 캡처가 아닙니다. 실제 ArubaMM-HW-10K·ArubaOS 8.10 환경에서의 해결과 Windows 11 실기/고배율은 사용자 검증 대상입니다. 실행 파일은 코드 서명되지 않았습니다.
+이전 결과는 [v0.3.5 기록](validation/v0.3.5/BUILD_VALIDATION_KO.md)에 보존했습니다.

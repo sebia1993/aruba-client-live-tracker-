@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import QLibraryInfo, QTimer, QTranslator
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from .models import Outcome
+from .runtime_info import runtime_identity
 from .ui import MainWindow
 
 
@@ -29,9 +31,33 @@ def main(argv: list[str] | None = None) -> int:
     app.installTranslator(translator)
     app.setApplicationName("Aruba Client Live Tracker")
     app.setOrganizationName("ArubaClientLiveTracker")
-    temporary = tempfile.TemporaryDirectory(prefix="aruba-live-smoke-") if args.smoke_test and not args.data_dir else None
-    data_path = args.data_dir or (Path(temporary.name) if temporary else None)
-    window = MainWindow(data_path=data_path, demo=args.demo or args.multi_demo or args.smoke_test, multi=args.multi_demo)
+    def write_result(code: int, reason: str, metrics: dict | None = None) -> bool:
+        if not args.smoke_result:
+            return True
+        try:
+            args.smoke_result.parent.mkdir(parents=True, exist_ok=True)
+            args.smoke_result.write_text(json.dumps(
+                {"success": code == 0, "reason": reason, "runtime": runtime_identity(), **(metrics or {})}, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            return False
+        return True
+
+    temporary = None
+    try:
+        temporary = tempfile.TemporaryDirectory(prefix="aruba-live-smoke-") if args.smoke_test and not args.data_dir else None
+        data_path = args.data_dir or (Path(temporary.name) if temporary else None)
+        window = MainWindow(data_path=data_path, demo=args.demo or args.multi_demo or args.smoke_test, multi=args.multi_demo)
+    except (OSError, sqlite3.Error):
+        reason = "로컬 데이터 폴더 또는 이력 파일을 열 수 없습니다. 폴더 접근 권한과 저장 공간을 확인하세요. 기존 파일을 보존하고 다른 데이터 폴더로 실행할 수 있습니다."
+        write_result(6, reason)
+        if not args.smoke_test and app.platformName() not in {'offscreen', 'minimal'}:
+            QMessageBox.critical(None, "프로그램 시작 실패", reason)
+        elif not args.smoke_test and QApplication.instance() is app and argv is not None:
+            # Embedded invocations can provide their own dialog presentation.
+            QMessageBox.critical(None, "프로그램 시작 실패", reason)
+        if temporary:
+            temporary.cleanup()
+        return 6
     if args.screenshot and args.multi_demo:
         window.resize(1500, 1700)
     window.show()
@@ -43,15 +69,17 @@ def main(argv: list[str] | None = None) -> int:
         if completed:
             return
         completed = True
-        if args.smoke_result:
-            args.smoke_result.parent.mkdir(parents=True, exist_ok=True)
-            args.smoke_result.write_text(json.dumps({"success": code == 0, "reason": reason, **metrics}, ensure_ascii=False), encoding="utf-8")
         window.stop_all()
         def exit_when_idle():
+            nonlocal code, reason
             if window.coordinator.busy:
                 QTimer.singleShot(25, exit_when_idle)
                 return
-            window.close()
+            if not window.close() or not window._closed:
+                code = 8
+                reason = 'HISTORY_SHUTDOWN_FAILED: 이력 종료 기록 저장 또는 DB 닫기에 실패했습니다. 저장 공간과 권한을 확인하세요.'
+            if not write_result(code, reason, metrics):
+                code = 7
             app.exit(code)
         exit_when_idle()
 
@@ -92,11 +120,15 @@ def main(argv: list[str] | None = None) -> int:
         refresh_timer.stop()
         window.pause_all()
         def capture():
-            if args.screenshot:
-                args.screenshot.parent.mkdir(parents=True, exist_ok=True)
-                if not window.grab().save(str(args.screenshot), "PNG"):
-                    finish(4, "화면 저장 실패")
-                    return
+            try:
+                if args.screenshot:
+                    args.screenshot.parent.mkdir(parents=True, exist_ok=True)
+                    if not window.grab().save(str(args.screenshot), "PNG"):
+                        finish(4, "화면 저장 실패")
+                        return
+            except OSError:
+                finish(4, "화면 저장 경로를 사용할 수 없습니다")
+                return
             finish(0, f"GUI 생성·{expected}대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인")
         QTimer.singleShot(100, capture)
 

@@ -274,3 +274,86 @@ def test_start_storage_failure_stays_local_and_other_targets_start(manager, monk
     assert "저장" in manager.contexts[first].note
     assert manager.contexts[first].collector is None
     assert manager.store.observations(manager.contexts[second].session_id)
+
+
+@pytest.mark.parametrize("retire", ["stop", "remove"])
+def test_dormant_duplicate_cannot_block_new_owner_after_winner_retires(manager, retire):
+    first = manager.add("192.0.2.100")
+    duplicate = manager.add("02:00:00:00:00:01")
+    manager.start_all()
+    settle(manager, lambda: manager.contexts[duplicate].status == "duplicate")
+    getattr(manager, retire)(first)
+
+    third = manager.add("192.0.2.101")
+    manager.start(third)
+    current = manager.contexts[third]
+    current.collector.result = PollResult(Outcome.OK, Observation(mac="02:00:00:00:00:01"))
+    settle(manager, lambda: current.view is not None)
+
+    assert current.status == "running"
+    assert current.view.result.outcome == Outcome.OK
+    assert manager.contexts[duplicate].status == "duplicate"
+    assert manager.store.observations(current.session_id)[-1]["mac"] == "02:00:00:00:00:01"
+
+    # A dormant row takes ownership only after an explicit restart and fresh result.
+    previous_session = manager.contexts[duplicate].session_id
+    manager.resume(duplicate)
+    settle(manager, lambda: current.status == "duplicate")
+    assert manager.contexts[duplicate].status == "running"
+    assert manager.contexts[duplicate].session_id != previous_session
+
+
+@pytest.mark.parametrize("owner_state", ["running", "paused", "selection_required"])
+def test_active_owner_keeps_mac_claim_while_paused_or_awaiting_selection(manager, owner_state):
+    first = manager.add("192.0.2.100")
+    manager.start(first)
+    owner = manager.contexts[first]
+    settle(manager, lambda: owner.view is not None)
+    if owner_state == "paused":
+        manager.pause(first)
+    elif owner_state == "selection_required":
+        owner.collector.result = PollResult(Outcome.AMBIGUOUS, candidates=[
+            Candidate("192.0.2.100", "02:00:00:00:00:01", "192.0.2.20")
+        ])
+        manager.refresh(first)
+        settle(manager, lambda: owner.status == "selection_required")
+
+    second = manager.add("02:00:00:00:00:01")
+    manager.start(second)
+    settle(manager, lambda: manager.contexts[second].view is not None)
+    assert owner.status == owner_state
+    assert manager.contexts[second].status == "duplicate"
+
+
+def test_duplicate_with_inflight_poll_discards_late_result_and_releases_collector(manager):
+    first = manager.add("192.0.2.100")
+    second = manager.add("02:00:00:00:00:01")
+    manager.start_all()
+    first_gate = threading.Event()
+    second_gate = threading.Event()
+    owner = manager.contexts[first]
+    newer = manager.contexts[second]
+    owner.collector.gate = first_gate
+    try:
+        settle(manager, lambda: newer.view is not None)
+        newer_collector = newer.collector
+        newer_collector.gate = second_gate
+        manager.refresh(second)
+        manager.tick()
+        assert newer.in_flight and owner.in_flight
+        records = len(manager.store.observations(newer.session_id))
+
+        first_gate.set()
+        settle(manager, lambda: newer.status == "duplicate")
+        assert newer.cancel.is_set()
+        second_gate.set()
+        settle(manager, lambda: not manager.busy)
+
+        assert owner.status == "running"
+        assert newer.status == "duplicate" and newer.collector is None
+        assert newer_collector.closed
+        assert len(manager.store.observations(newer.session_id)) == records
+        assert len(newer.samples) == 1
+    finally:
+        first_gate.set()
+        second_gate.set()

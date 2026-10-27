@@ -411,3 +411,76 @@ def test_real_ssh_mixed_ipv4_ipv6_discovery_preserves_selected_md_mapping(lab, t
         assert mm.commands == ["show switches", "show switchinfo", "show version"]
     finally:
         service.close()
+
+
+def test_loopback_indented_repeated_headers_discovery_and_selected_probe(lab, tmp_path, monkeypatch):
+    from test_switches_formats import (
+        IDENTITY_HEADERS,
+        IDENTITY_ROWS,
+        STATUS_HEADERS,
+        STATUS_ROWS,
+    )
+    from test_switches_formats import table as switch_table
+
+    from aruba_client_live_tracker.discovery import DiscoveryService
+
+    mm, md = lab('MM'), lab('MD')
+    identity = switch_table(IDENTITY_HEADERS, IDENTITY_ROWS).splitlines()
+    status = switch_table(STATUS_HEADERS, STATUS_ROWS).splitlines()
+    # Synthetic boundaries include the header/separator boundary, a repeated
+    # identity header and a repeated status header. No banner precedes the first
+    # indented header, so stripping only the first line's indent breaks layout.
+    pages = [identity[:1], identity[1:3], [*identity[:2], *identity[3:], *status[:3]],
+             [*status[:2], *status[3:], 'Total Switches:3']]
+    mm.command_pages['show switches'] = ['\n'.join('    ' + line for line in page) for page in pages]
+    getaddrinfo = socket.getaddrinfo
+    endpoints = []
+    def loopback_only(host, port, *args, **kwargs):
+        endpoints.append((host, port))
+        assert host == '127.0.0.1' and port in (mm.port, md.port)
+        return getaddrinfo(host, port, *args, **kwargs)
+    monkeypatch.setattr(socket, 'getaddrinfo', loopback_only)
+    service = DiscoveryService(Credentials('synthetic', 'synthetic-secret'), tmp_path / 'known_hosts')
+    try:
+        found = service.discover(Device('입력 MM', '127.0.0.1', 'AUTO', mm.port))
+        assert not found.diagnostics
+        assert [device.kind for device in found.devices] == ['MM_PRIMARY', 'MM_STANDBY', 'MD']
+        assert endpoints == [('127.0.0.1', mm.port)]
+        selected = next(device for device in found.devices if device.kind == 'MD')
+        assert selected.mappings == ('192.0.2.20', 'LAB-WLC')
+        checked = service.probe([replace(selected, host='127.0.0.1', port=md.port)])
+        assert not checked.diagnostics
+        assert checked.devices[0].mappings == ('192.0.2.20', 'LAB-MD')
+        assert endpoints == [('127.0.0.1', mm.port), ('127.0.0.1', md.port)]
+        assert mm.page_keys == [b' '] * 3
+        assert md.commands == ['show switchinfo', 'show version']
+    finally:
+        service.close()
+
+
+def test_loopback_empty_address_diagnostic_contains_only_structure(lab, tmp_path):
+    from test_switches_formats import switches_output
+
+    from aruba_client_live_tracker.discovery import DiscoveryService
+
+    mm = lab('MM')
+    lines = switches_output().splitlines()
+    lines.insert(7, '')
+    name_start = lines[3].index('Name')
+    lines[8] = ' ' * name_start + lines[8][name_start:]
+    # Drop the synthetic parser caller's prompt; the lab sends the SSH prompt.
+    mm.switches_output = '\n'.join(lines[:-1])
+    service = DiscoveryService(Credentials('synthetic', 'synthetic-secret'), tmp_path / 'known_hosts')
+    try:
+        result = service.discover(Device('입력 MM', '127.0.0.1', 'AUTO', mm.port))
+        assert len(result.devices) == 1
+        error = next(item for item in result.diagnostics if item.code == 'SWITCH_TABLE_PARSE_FAILED')
+        assert 'ADDRESS_CELL_EMPTY' in error.message and '출력 9행' in error.message
+        assert 'IP 열 길이 0' in error.message and 'IPv6 열 길이 0' in error.message
+        assert '수신 행=' in error.message and '정규화 행=' in error.message
+        assert '프롬프트=1' in error.message and '종료=complete' in error.message
+        assert 'CR=' in error.message and 'LF=' in error.message and 'ANSI=' in error.message
+        for value in ('LAB-', '192.0.2.', 'synthetic-secret', 'Synthetic.floor', 'Aruba7240'):
+            assert value not in error.message
+    finally:
+        service.close()

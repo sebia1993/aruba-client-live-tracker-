@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import socket
 import threading
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import paramiko
@@ -465,3 +467,152 @@ def test_existing_rsa_pin_preserves_negotiation_preference_without_key_cache(mak
     session.run('show global-user-table list ip "192.0.2.100"')
     assert client.authenticated
     session.close()
+
+
+def test_close_aborts_real_transport_before_channel_rekey_wait(tmp_path):
+    """A channel close must not wait for rekey or strand the live transport."""
+    local, peer = socket.socketpair()
+    transport = paramiko.Transport(local)
+    channel = paramiko.Channel(1)
+    channel._set_transport(transport)
+    channel._set_remote_channel(1, 32768, 32768)
+    transport._channels.put(1, channel)
+    transport.active = True
+    transport.clear_to_send.clear()
+    # Preserve Paramiko's real rekey wait/error path without a 30-second test.
+    transport.clear_to_send_timeout = -1
+    client = paramiko.SSHClient()
+    client._transport = transport
+    session = SSHSession(Device('synthetic', '192.0.2.10'), Credentials('synthetic', 'secret'),
+                         tmp_path / 'known_hosts')
+    session._client, session._channel = client, channel
+    try:
+        session.close()
+        assert not transport.is_active()
+        assert local.fileno() == -1
+        assert channel.closed
+        session.close()
+    finally:
+        transport.close()
+        peer.close()
+
+
+def test_close_still_releases_client_when_channel_cleanup_raises(make, monkeypatch):
+    session, client, _ = make()
+    session._client, session._channel = client, client.channel
+
+    def channel_failure():
+        raise paramiko.SSHException('synthetic cleanup error')
+
+    monkeypatch.setattr(client.channel, 'close', channel_failure)
+    session.close()
+    assert client.closed
+    assert session._client is None and session._channel is None
+
+
+@pytest.mark.parametrize('interruption,expected', [('cancel', 'CANCELLED'), ('deadline', 'TIMEOUT')])
+def test_real_password_auth_interruption_keeps_cancellation_reason(tmp_path, monkeypatch,
+                                                                  interruption, expected):
+    from test_live_ssh_integration import _LabSSH, _ServerInterface
+
+    entered, release = threading.Event(), threading.Event()
+    original_auth = _ServerInterface.check_auth_password
+
+    def delayed_auth(server, username, password):
+        entered.set()
+        assert release.wait(3), 'synthetic authentication was not released'
+        return original_auth(server, username, password)
+
+    monkeypatch.setattr(_ServerInterface, 'check_auth_password', delayed_auth)
+    server = _LabSSH('MM')
+    cancel = threading.Event()
+    session = SSHSession(Device('synthetic', '127.0.0.1', 'MM_PRIMARY', server.port),
+                         Credentials('synthetic', 'secret'), tmp_path / 'known_hosts')
+    try:
+        with ThreadPoolExecutor(max_workers=1) as workers:
+            deadline = time.monotonic() + (0.8 if interruption == 'deadline' else 3)
+            pending = workers.submit(session.run, 'show switches', cancel, deadline)
+            try:
+                assert entered.wait(2), 'password authentication was not reached'
+                if interruption == 'cancel':
+                    cancel.set()
+                with pytest.raises(SSHError) as caught:
+                    pending.result(timeout=2)
+                assert caught.value.code == expected
+                assert caught.value.retryable == (interruption == 'deadline')
+            finally:
+                release.set()
+    finally:
+        session.close()
+        server.close()
+
+
+def test_real_bad_password_still_reports_auth_failed(tmp_path):
+    from test_live_ssh_integration import _LabSSH
+
+    server = _LabSSH('MM')
+    server.allow_auth = False
+    session = SSHSession(Device('synthetic', '127.0.0.1', 'MM_PRIMARY', server.port),
+                         Credentials('synthetic', 'secret'), tmp_path / 'known_hosts')
+    try:
+        with pytest.raises(SSHError) as caught:
+            session.run('show switches', deadline=time.monotonic() + 3)
+        assert caught.value.code == 'AUTH_FAILED'
+        assert not caught.value.retryable
+    finally:
+        session.close()
+        server.close()
+
+
+# HPE ArubaOS 8.10 CLI Reference, physical p. 9: ^ means unsaved
+# configuration and * means available crash information. The byte streams are
+# synthetic; another device hostname/context must not complete this command.
+@pytest.mark.parametrize('initial,final', [
+    ('(LAB) [mynode] #', '(LAB) ^[mynode] #'),
+    ('(LAB) ^[mynode] #', '(LAB) *[mynode] #'),
+    ('(LAB) *[mynode] #', '(LAB) ^*[mynode] #'),
+    ('(LAB) ^*[mynode] #', '(LAB) [mynode] #'),
+])
+def test_prompt_status_change_preserves_same_device_identity(make, initial, final):
+    channel = Channel('Total entries = 0\r\n' + final)
+    channel.pending = deque([('Synthetic CLI\r\n' + initial).encode()])
+    session, _, _ = make(channel=channel)
+    try:
+        assert session.run('show switches', deadline=time.monotonic() + 0.5) == 'Total entries = 0'
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize('final', [
+    '(OTHER) ^[mynode] #', '(LAB) ^[othernode] #', '(LAB) ^[mynode] >',
+    '(LAB) ^^[mynode] #', '(LAB) %[mynode] #',
+])
+def test_changed_prompt_identity_does_not_complete_command(make, final):
+    channel = Channel('Total entries = 0\r\n' + final)
+    channel.pending = deque([b'Synthetic CLI\r\n(LAB) [mynode] #'])
+    session, _, _ = make(channel=channel)
+    try:
+        with pytest.raises(SSHError) as caught:
+            session.run('show switches', deadline=time.monotonic() + 0.2)
+        assert caught.value.code == 'TIMEOUT'
+    finally:
+        session.close()
+
+
+def test_concurrent_close_during_session_reuse_is_a_controlled_error(make, monkeypatch):
+    session, client, _ = make()
+    session.run('show switches')
+
+    def close_after_transport_snapshot():
+        active = not client.closed
+        closer = threading.Thread(target=session.close)
+        closer.start()
+        closer.join(1)
+        assert not closer.is_alive()
+        return active
+
+    monkeypatch.setattr(client, 'is_active', close_after_transport_snapshot)
+    with pytest.raises(SSHError) as caught:
+        session.run('show switches')
+    assert caught.value.code == 'CONNECTION_CLOSED'
+    assert client.channel.sent == ['show switches\n']

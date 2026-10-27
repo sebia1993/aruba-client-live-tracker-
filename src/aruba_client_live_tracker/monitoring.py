@@ -122,6 +122,9 @@ class MonitoringCoordinator:
             context.pending_start = True
             return
         self.stop(identity)
+        if context.session_id is not None:
+            # Keep the previous session available for an explicit save retry.
+            return
         try:
             collector = self.collector_factory(context)
         except Exception:
@@ -158,8 +161,11 @@ class MonitoringCoordinator:
             try:
                 self.store.end_session(context.session_id)
             except Exception:
-                context.note = "추적 종료 시각을 저장하지 못했습니다. 저장 공간과 권한을 확인하세요."
-            context.session_id = None
+                context.note = "HISTORY_END_FAILED: 추적 종료 시각을 저장하지 못했습니다. 저장 공간과 권한을 확인한 뒤 중지 또는 창 닫기를 다시 시도하세요."
+            else:
+                context.session_id = None
+                if context.note.startswith('HISTORY_END_FAILED:'):
+                    context.note = ''
         if not context.in_flight and context.collector is not None:
             context.collector.close()
             context.collector = None
@@ -189,6 +195,8 @@ class MonitoringCoordinator:
 
     def remove(self, identity: str) -> None:
         self.stop(identity)
+        if self.contexts[identity].session_id is not None:
+            return
         self.contexts.pop(identity)
         self._order.remove(identity)
 
@@ -239,7 +247,8 @@ class MonitoringCoordinator:
             matching = [
                 c
                 for c in self.contexts.values()
-                if c.status != "stopped" and c.identity_mac and c.identity_mac == context.identity_mac
+                if c.status not in {"stopped", "duplicate"}
+                and c.identity_mac and c.identity_mac == context.identity_mac
             ]
             if len(matching) > 1:
                 winner = matching[0]
@@ -351,10 +360,14 @@ class MonitoringCoordinator:
         if not self._closing:
             self._closing = True
             self.stop_all()
+        else:
+            for identity, context in self.contexts.items():
+                if context.session_id is not None:
+                    self.stop(identity)
         if wait:
             self._executor.shutdown(wait=True)
         self.tick()
-        if not self.busy:
+        if not self.busy and all(context.session_id is None for context in self.contexts.values()):
             self._executor.shutdown(wait=False)
             self._closed = True
         return self._closed

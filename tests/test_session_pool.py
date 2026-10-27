@@ -3,6 +3,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import paramiko
 import pytest
 
 from aruba_client_live_tracker.models import Credentials, Device
@@ -379,3 +380,92 @@ def test_ten_collectors_1000_rounds_keep_shared_sessions_and_metadata_bounded(po
             collector.close()
     assert not pool._runners
     assert all(session.closed for session in transports)
+
+
+def test_slow_owner_close_does_not_block_other_endpoint(pool, monkeypatch):
+    one, two = pool.for_owner('one'), pool.for_owner('two')
+    other = Device('other', '192.0.2.30')
+    one.run(DEVICE, COMMAND)
+    two.run(other, COMMAND)
+    closing, finish_close = threading.Event(), threading.Event()
+    original_close = Transport.instances[0].close
+
+    def slow_close():
+        closing.set()
+        assert finish_close.wait(2), 'test did not release transport shutdown'
+        original_close()
+
+    monkeypatch.setattr(Transport.instances[0], 'close', slow_close)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        shutdown = workers.submit(one.close)
+        assert closing.wait(1)
+        try:
+            independent = workers.submit(two.run, other, COMMAND)
+            assert independent.result(timeout=0.5) == COMMAND
+        finally:
+            finish_close.set()
+            shutdown.result(timeout=1)
+
+
+def test_eviction_counts_closing_connection_without_blocking_other_endpoint(pool, monkeypatch):
+    pool.max_connections = 2
+    one, two, three = [pool.for_owner(name) for name in ('one', 'two', 'three')]
+    other, new = Device('other', '192.0.2.30'), Device('new', '192.0.2.31')
+    one.run(DEVICE, COMMAND)
+    two.run(other, COMMAND)
+    closing, finish_close = threading.Event(), threading.Event()
+    original_close = Transport.instances[0].close
+
+    def slow_close():
+        closing.set()
+        assert finish_close.wait(2), 'test did not release transport shutdown'
+        original_close()
+
+    monkeypatch.setattr(Transport.instances[0], 'close', slow_close)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        waiting = workers.submit(three.run, new, COMMAND)
+        assert closing.wait(1)
+        try:
+            independent = workers.submit(two.run, other, COMMAND)
+            assert independent.result(timeout=0.5) == COMMAND
+            assert not waiting.done()
+            assert sum(not transport.closed for transport in Transport.instances) == 2
+        finally:
+            finish_close.set()
+        assert waiting.result(timeout=1) == COMMAND
+    assert sum(not transport.closed for transport in Transport.instances) == 2
+
+
+def test_close_failure_preserves_primary_command_error(pool, monkeypatch):
+    owner = pool.for_owner('one')
+    owner.run(DEVICE, COMMAND)
+    failure = SSHError('NETWORK', 'primary command error', retryable=True)
+    Transport.failure = failure
+
+    def failing_close():
+        raise paramiko.SSHException('synthetic shutdown failure')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Transport.instances[0], 'close', failing_close)
+        with pytest.raises(SSHError) as caught:
+            owner.run(DEVICE, COMMAND)
+        assert caught.value is failure
+
+
+def test_close_failure_does_not_leave_endpoint_busy(pool, monkeypatch):
+    pool.cooldown = 0
+    owner = pool.for_owner('one')
+    owner.run(DEVICE, COMMAND)
+
+    def failing_close():
+        raise paramiko.SSHException('synthetic shutdown failure')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Transport.instances[0], 'close', failing_close)
+        Transport.failure = SSHError('NETWORK', 'primary command error', retryable=True)
+        try:
+            owner.run(DEVICE, COMMAND)
+        except (SSHError, paramiko.SSHException):
+            pass
+    Transport.failure = None
+    assert owner.run(DEVICE, COMMAND, deadline=time.monotonic() + 0.2) == COMMAND

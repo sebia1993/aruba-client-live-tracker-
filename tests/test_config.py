@@ -64,3 +64,57 @@ def test_multiple_auto_entries_allowed(tmp_path):
     devices = [Device('a', '192.0.2.1', 'AUTO'), Device('b', '192.0.2.2', 'AUTO')]
     save_devices(tmp_path / 'settings.json', devices)
     assert load_devices(tmp_path / 'settings.json') == devices
+
+
+@pytest.mark.parametrize('mappings', ['LAB-MD', {'LAB-MD': True}, None, 1])
+def test_json_mappings_must_be_an_array(tmp_path, mappings):
+    path = tmp_path / 'settings.json'
+    path.write_text(json.dumps({'version': 2, 'devices': [
+        {'name': 'LAB', 'host': '192.0.2.1', 'mappings': mappings},
+    ]}), encoding='utf-8')
+    with pytest.raises(ValueError):
+        load_devices(path)
+
+
+@pytest.mark.parametrize('original', [
+    b'{invalid', b'\xff\xfeinvalid',
+    b'{"version": 999, "devices": [{"name": "LAB", "host": "192.0.2.1"}]}',
+])
+def test_recovery_save_preserves_exact_original_bytes(tmp_path, original):
+    path = tmp_path / 'settings.json'
+    path.write_bytes(original)
+    previous = tmp_path / 'settings.json.recovery-previous.bak'
+    previous.write_bytes(b'previous recovery')
+    backup = save_devices(path, [Device('LAB', '192.0.2.1')])
+    assert backup is not None and backup.parent == tmp_path
+    assert backup.name.startswith('settings.json.recovery-') and backup.suffix == '.bak'
+    assert backup.read_bytes() == original
+    assert previous.read_bytes() == b'previous recovery'
+    assert load_devices(path) == [Device('LAB', '192.0.2.1')]
+
+
+def test_valid_settings_save_needs_no_recovery_backup(tmp_path):
+    path = tmp_path / 'settings.json'
+    save_devices(path, [Device('LAB', '192.0.2.1')])
+    assert save_devices(path, [Device('LAB', '192.0.2.2')]) is None
+    assert not list(tmp_path.glob('settings.json.recovery-*.bak'))
+    assert load_devices(path)[0].host == '192.0.2.2'
+
+
+def test_failed_recovery_backup_cannot_replace_original(tmp_path, monkeypatch):
+    from aruba_client_live_tracker import config
+    path = tmp_path / 'settings.json'
+    original = b'{invalid but recoverable content'
+    path.write_bytes(original)
+    mkstemp = config.tempfile.mkstemp
+
+    def deny_backup(*args, **kwargs):
+        if kwargs.get('prefix', '').startswith('settings.json.recovery-'):
+            raise PermissionError('synthetic backup failure')
+        return mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(config.tempfile, 'mkstemp', deny_backup)
+    with pytest.raises(OSError):
+        save_devices(path, [])
+    assert path.read_bytes() == original
+    assert not list(tmp_path.glob('settings.json.recovery-*.bak'))

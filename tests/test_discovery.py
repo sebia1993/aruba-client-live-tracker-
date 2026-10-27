@@ -329,3 +329,80 @@ def test_merge_fresh_self_identity_replaces_conflicting_discovered_metadata():
     assert devices[0].identity == fresh.identity
     assert devices[0].mappings == ()
     assert diagnostics
+
+
+def test_probe_hostname_change_refreshes_discovered_aliases_and_preserves_extras(service):
+    from aruba_client_live_tracker.collector import map_md
+    original = Device('display name', '192.0.2.20', 'MD', origin='discovered',
+        mappings=('192.0.2.20', 'OLD-MD', 'EXPLICIT'), identity=DeviceIdentity(
+            hostname='OLD-MD', switch_ip='192.0.2.20', reported_role='MD', source='show switches'))
+    FakeSession.outputs = {
+        (original.host, 'show switchinfo'): 'Hostname: NEW-MD\nInternet address: 192.0.2.20\nswitchrole:local',
+        (original.host, 'show version'): 'ArubaOS (MODEL: Aruba7240XM), Version 8.10.0.0',
+    }
+    probed = service.probe([original])
+    devices, _ = merge_discovered([original], probed.devices)
+    assert devices[0].identity.hostname == 'NEW-MD'
+    assert devices[0].mappings == ('EXPLICIT', '192.0.2.20', 'NEW-MD')
+    assert map_md('NEW-MD', devices).host == original.host
+    assert map_md('EXPLICIT', devices).host == original.host
+    with pytest.raises(ValueError, match='매핑이 없습니다'):
+        map_md('OLD-MD', devices)
+
+
+def test_probe_hostname_change_preserves_manual_mapping_choices(service):
+    original = Device('manual', '192.0.2.20', 'MD', origin='manual',
+        mappings=('OLD-MD', 'EXPLICIT'), identity=DeviceIdentity(
+            hostname='OLD-MD', switch_ip='192.0.2.20', reported_role='MD', source='show switches'))
+    FakeSession.outputs = {
+        (original.host, 'show switchinfo'): 'Hostname: NEW-MD\nInternet address: 192.0.2.20\nswitchrole:local',
+        (original.host, 'show version'): 'ArubaOS (MODEL: Aruba7240XM), Version 8.10.0.0',
+    }
+    assert service.probe([original]).devices[0].mappings == original.mappings
+
+
+@pytest.mark.parametrize('alias', ['2001:db8::20', '2001:0db8:0:0::20'])
+def test_merge_ipv6_alias_collision_uses_same_address_identity_as_collection(alias):
+    from aruba_client_live_tracker.collector import map_md
+    existing = Device('manual', '2001:0db8:0:0::20', 'MD', mappings=('EXPLICIT',))
+    found = Device('new', '2001:db8::30', 'MD', origin='discovered',
+        identity=DeviceIdentity(hostname='NEW-MD', switch_ip='2001:db8::20', reported_role='MD'),
+        mappings=(alias, 'NEW-MD'))
+    devices, diagnostics = merge_discovered([existing], [found])
+    assert devices[0] == existing
+    assert devices[1].mappings == ('NEW-MD',)
+    assert any(d.code == 'MAPPING_CONFLICT' for d in diagnostics)
+    assert map_md('2001:db8::20', devices) == existing
+
+
+def test_merge_ipv6_collision_preserves_explicit_manual_alias_spelling():
+    manual = Device('manual', '2001:db8::10', 'MD', mappings=('2001:0db8:0:0::20',))
+    found = Device('new', '2001:db8::30', 'MD', origin='discovered',
+        identity=DeviceIdentity(switch_ip='2001:db8::20', reported_role='MD'), mappings=('2001:db8::20',))
+    devices, diagnostics = merge_discovered([manual], [found])
+    assert devices[0] == manual
+    assert devices[1].mappings == ()
+    assert any(d.code == 'MAPPING_CONFLICT' for d in diagnostics)
+
+
+@pytest.mark.parametrize('response', ['', SSHError('CONNECT_FAILED', 'synthetic connection failure')])
+def test_failed_probe_keeps_previous_identity_observation_time_and_source(service, response):
+    original = Device('old', '192.0.2.20', 'MD', origin='discovered',
+        identity=DeviceIdentity(hostname='OLD-MD', switch_ip='192.0.2.20', reported_role='MD',
+            observed_at='2000-01-01T00:00:00+00:00', source='show switches'))
+    FakeSession.outputs = {(original.host, 'show switchinfo'): response}
+    result = service.probe([original])
+    assert result.diagnostics
+    assert result.devices[0].identity == original.identity
+
+
+@pytest.mark.parametrize('switchinfo,version', [('', ''), ('Unrecognized output', 'Unrecognized output')])
+def test_empty_identity_evidence_has_no_observation_time_or_source(switchinfo, version):
+    assert parse_identity(switchinfo, version) == DeviceIdentity()
+
+
+def test_unrecognized_switchinfo_is_not_marked_as_self_identity_evidence():
+    identity = parse_identity('Unrecognized output', 'ArubaOS (MODEL: Aruba7240XM), Version 8.10.0.0')
+    assert identity.source == 'show version'
+    assert identity.observed_at
+    assert identity.model == 'Aruba7240XM'
