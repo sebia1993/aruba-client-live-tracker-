@@ -27,6 +27,7 @@ from .parsers import (
     parse_user,
     reject_errors,
 )
+from .session_pool import OwnerCommandRunner
 from .ssh import SSHError, SSHSession
 
 POLL_TIMEOUT = 75.0
@@ -46,11 +47,14 @@ def map_md(current_switch: str, devices: list[Device]) -> Device:
 
 class LiveCollector:
     def __init__(self, devices: list[Device], credentials: Credentials, known_hosts: Path,
-                 approve_host_key: Callable[[Device, str, str], bool] | None = None):
+                 approve_host_key: Callable[[Device, str, str], bool] | None = None, *,
+                 command_runner: OwnerCommandRunner | None = None):
         self.devices = list(devices)
         self.credentials = credentials
         self.known_hosts = Path(known_hosts)
         self.approve_host_key = approve_host_key
+        self._command_runner = command_runner
+        self._runner_md: Device | None = None
         self._sessions: dict[str, tuple[Device, SSHSession]] = {}
         self._lock = threading.Lock()
         self._session_lock = threading.RLock()
@@ -62,6 +66,9 @@ class LiveCollector:
 
     def close(self) -> None:
         with self._session_lock:
+            if self._command_runner is not None:
+                self._command_runner.close()
+            self._runner_md = None
             for _, session in self._sessions.values():
                 session.close()
             self._sessions.clear()
@@ -86,6 +93,9 @@ class LiveCollector:
             return session
 
     def _drop(self, device: Device) -> None:
+        if self._command_runner is not None:
+            self._command_runner.drop(device)
+            return
         slot = "md" if device.kind == "MD" else "mm"
         with self._session_lock:
             previous = self._sessions.pop(slot, None)
@@ -134,7 +144,15 @@ class LiveCollector:
             nonlocal raw_bytes
             if cancel is not None and cancel.is_set():
                 raise SSHError("CANCELLED", "조회가 중지되었습니다.")
-            output = self._session(device).run(command, cancel=cancel, deadline=deadline)
+            if self._command_runner is None:
+                output = self._session(device).run(command, cancel=cancel, deadline=deadline)
+            else:
+                if device.kind == "MD" and self._runner_md != device:
+                    self._runner_md = device
+                    self._history_at.clear()
+                    self._history_raw.clear()
+                    self._history_status.clear()
+                output = self._command_runner.run(device, command, cancel=cancel, deadline=deadline)
             size = len(output.encode("utf-8", errors="replace"))
             if raw_bytes + size > MAX_POLL_RAW_BYTES:
                 raise SSHError("OUTPUT_LIMIT", "한 번의 조회 출력량 제한을 초과했습니다.")

@@ -115,11 +115,16 @@ class _ApprovalPolicy(paramiko.MissingHostKeyPolicy):
             callback = session.approve_host_key
             arguments = (session.device, key.get_name(), fingerprint_sha256(key))
             try:
-                inspect.signature(callback).bind(*arguments, self.deadline)
+                inspect.signature(callback).bind(*arguments, self.deadline, self.cancel)
             except (TypeError, ValueError):
-                approved = callback(*arguments)
+                try:
+                    inspect.signature(callback).bind(*arguments, self.deadline)
+                except (TypeError, ValueError):
+                    approved = callback(*arguments)
+                else:
+                    approved = callback(*arguments, self.deadline)
             else:
-                approved = callback(*arguments, self.deadline)
+                approved = callback(*arguments, self.deadline, self.cancel)
         # A trust decision must never become a retryable network timeout.
         if approved is not True:
             raise SSHError("HOST_KEY_REJECTED", "SSH 서버 키가 승인되지 않아 접속하지 않았습니다.")

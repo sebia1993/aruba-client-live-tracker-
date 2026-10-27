@@ -264,3 +264,22 @@ def test_host_key_dialog_receives_transport_deadline(make, key, monkeypatch):
     with pytest.raises(SSHError):
         _ApprovalPolicy(session, None, 12.0).missing_host_key(client, "192.0.2.10", key)
     assert deadlines == [12.0]
+
+
+def test_host_key_callback_receives_exact_operation_cancel(make, key, monkeypatch):
+    from aruba_client_live_tracker.ssh import _ApprovalPolicy
+
+    session, client, _ = make()
+    monkeypatch.setattr('aruba_client_live_tracker.ssh.time.monotonic', lambda: 0.0)
+    cancel = threading.Event()
+    calls = []
+
+    def approval(device, algorithm, fingerprint, deadline, operation_cancel):
+        calls.append((deadline, operation_cancel))
+        return False
+
+    session.approve_host_key = approval
+    with pytest.raises(SSHError) as caught:
+        _ApprovalPolicy(session, cancel, 12.0).missing_host_key(client, '192.0.2.10', key)
+    assert caught.value.code == 'HOST_KEY_REJECTED'
+    assert calls == [(12.0, cancel)]

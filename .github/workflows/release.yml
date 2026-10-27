@@ -20,13 +20,26 @@ jobs:
       - name: Resolve version
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.1.0' }
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.Substring(1) } else { (Get-Content pyproject.toml | Select-String '^version = "([^"]+)"$').Matches.Groups[1].Value }
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:[-.][A-Za-z0-9]+)*$') { throw '잘못된 버전입니다.' }
           "APP_VERSION=$version" >> $env:GITHUB_ENV
-      - name: Check pinned dependency advisories
-        run: python scripts/check_dependencies.py
+      - name: Cache verified upstream sources
+        uses: actions/cache@v4
+        with:
+          path: build/upstream-sources
+          key: lgpl-sources-qt-6.8.3-paramiko-5.0.0-v1
       - name: Build, tests, EXE smoke, archive and checksum
         shell: pwsh
         run: ./build_windows.ps1 -Version $env:APP_VERSION
+      - name: Retain validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-validation
+          path: |
+            artifacts/*.json
+            dist/validation/*.json
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: ArubaClientLiveTracker-windows-x64

@@ -32,12 +32,29 @@ jobs:
         run: python -m ruff check src tests scripts
       - name: Tests including security and demo GUI
         run: python -m pytest -q
-      - name: Demo process smoke
-        run: python -m aruba_client_live_tracker.main --demo --smoke-test --data-dir smoke-data
+      - name: Single-client process smoke
+        run: python -m aruba_client_live_tracker.main --demo --smoke-test --data-dir smoke-single --smoke-result artifacts/source-single-smoke.json
+      - name: Ten-client process smoke
+        run: python -m aruba_client_live_tracker.main --multi-demo --smoke-test --data-dir smoke-multi --smoke-result artifacts/source-multi-smoke.json
+      - name: Cache verified upstream sources
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: build/upstream-sources
+          key: lgpl-sources-qt-6.8.3-paramiko-5.0.0-v1
       - name: Windows EXE build and smoke
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./build_windows.ps1 -SkipInstall
+      - name: Retain validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-${{ runner.os }}
+          path: |
+            artifacts/*.json
+            dist/validation/*.json
+          if-no-files-found: warn
       - name: Retain Windows artifacts
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

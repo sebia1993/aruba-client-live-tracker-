@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import tomllib
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -53,7 +54,9 @@ def main() -> int:
     parser.add_argument('--output', type=Path, default=Path('artifacts/dependency-advisories.json'))
     args = parser.parse_args()
     rows = audit(read_pins(args.requirements))
-    report = {'checked_at': datetime.now(UTC).isoformat(), 'source': 'PyPI version JSON advisories',
+    project = tomllib.loads((Path(__file__).resolve().parents[1] / 'pyproject.toml').read_text(encoding='utf-8'))
+    report = {'application_version': project['project']['version'],
+              'checked_at': datetime.now(UTC).isoformat(), 'source': 'PyPI version JSON advisories',
               'scope': '패키지 버전 공지 검사이며 내장 네이티브 라이브러리 전체 감사는 아닙니다.', 'packages': rows}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')

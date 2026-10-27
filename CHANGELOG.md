@@ -1,11 +1,21 @@
 # 변경 이력
 
-## 0.1.0 — 2026-10-27
+## 0.2.0 — 2026-10-27
 
-- 한국어 Qt 데스크톱, IP/MAC 검색 및 MM→등록 MD 추적 구조
+- 기존 단일 추적 유지, 최대 10대 목록·선택 상세 및 대상별/전체 제어
+- 대상별 독립 수집 상태·세션·취소/세대·버퍼와 공정한 순환, 실제 수집 최대 2개
+- 장비별 명령 직렬화·최대 12개 연결의 공유 SSH 풀, 실패 후 재시도 대기와 소유별 승인/정리
+- 대상별/통합 CSV·HTML 및 기존 SQLite 이력 호환, 대상 목록은 메모리만 유지
+- 10대 오프라인 데모와 단일/다중 Windows EXE 스모크를 포함한 Actions 빌드 구성
+- 공개 저장소 `sebia1993/aruba-client-live-tracker-` 연결, v0.2.0 문서와 대응 소스/체크섬 배포 구성
+
+검증 결과와 배포 상태는 [검증 기록](docs/BUILD_VALIDATION_KO.md)을 확인하십시오. 실제 Aruba 장비와 Windows 11 실기는 별도 확인이 필요합니다.
+
+## 0.1.0 — 2026-10-27 (과거 버전)
+
+- 한국어 Qt 데스크톱, IP/MAC 검색 및 MM→등록 MD 단일 추적
 - 보수적인 정상/실패/미등록 판정과 변경 이벤트
-- 오프라인 데모, SQLite 및 로컬 CSV/HTML 보고서
-- SSH 서버 키 검증, 읽기 전용 명령과 공개 자료 보안 검사
-- PyInstaller onedir 및 Windows CI/태그 릴리스 워크플로
+- 오프라인 데모, SQLite·로컬 CSV/HTML, 서버 키 검증
+- PyInstaller onedir, Windows CI/태그 릴리스 구성
 
-실제 장비 및 Windows 11 실기 검증은 사용자 확인이 필요합니다. GitHub 저장소 생성은 현재 integration 권한으로 거부되어 원격 CI와 Release 게시를 수행하지 못했습니다. 최신 로컬 빌드/테스트 결과는 `docs/BUILD_VALIDATION_KO.md`에 기록합니다.
+당시의 저장소 생성 권한 오류와 Wine 빌드 기록은 [v0.1.0 과거 검증](docs/validation/v0.1.0/BUILD_VALIDATION_KO.md)에 보존합니다. 과거 테스트 개수를 v0.2.0 결과로 사용하지 않습니다.

@@ -1,42 +1,36 @@
-# 빌드와 검증 기록
+# v0.2.0 빌드와 검증 기록
 
-검증일: 2026-10-27. 실제 Aruba 장비 접속은 수행하지 않았습니다.
+기록일: 2026-10-27. 실제 Aruba 장비 접속과 Windows 11 실기 검증은 수행하지 않았습니다.
 
-## 확인된 결과
+## 현재 버전 상태
 
-| 항목 | 실제 결과 |
+| 항목 | 기록 상태 |
 |---|---|
-| Linux CPython 자동 테스트 | **121 passed in 7.99s**, pytest 9.1.1 |
-| Windows CPython 3.12.10 x64, Wine 10 | `pytest`: **121 passed in 12.57s** |
-| 정적 검사 | `ruff check .`: 통과 |
-| 공개 의존성 공지 | 고정된 **25개 패키지, 영향 패키지 0개** (PyPI version advisories, 2026-10-27) |
-| Windows EXE 형식 | PyInstaller 6.16.0 Windows bootloader, PE32+ GUI, x86-64 |
-| Frozen EXE 데모 | **통과**, Wine 10의 Qt Windows 플랫폼에서 GUI 생성·데모 5회·SQLite 저장·정상 종료, exit 0 |
-| Qt 배율 스모크 | Linux Qt offscreen 125%·150% 각각 데모 5회·SQLite·종료 코드 0 (Windows 실기와 다름) |
-| 타사 고지 | Windows 설치 메타데이터에서 라이선스와 버전 manifest 수집, LGPL 해당 소스 ZIP 별도 제공 |
-| 실제 프로그램 이미지 | `docs/assets/demo-dashboard-full.png`, 가상 데이터로 실행한 실제 Qt 화면 |
+| 버전 | pyproject·패키지·Windows 빌드 기본값 0.2.0 |
+| 공개 원격 | `https://github.com/sebia1993/aruba-client-live-tracker-.git` (저장소 이름 끝 하이픈 포함) |
+| v0.2.0 자동 테스트·정적 검사 | Linux Python 3.12: **177 passed (15.74s)**, Ruff 통과 |
+| 고정 의존성 공지 | PyPI 25개 고정 패키지: 알려진 영향 공지 0건; 내장 네이티브 라이브러리 전체 감사는 아님 |
+| 10대 GUI·스크린샷 | 단일 1대/5건, 다중 10대/50건; 125%·150% offscreen 스모크 통과, 실제 스크린샷 저장 |
+| Windows Actions 빌드·단일/10대 EXE | 실행 결과 기록 대기 |
+| 원격 푸시·Actions·Release | 실행 URL 및 실제 결과 기록 대기 |
 
-의존성 공지 조회는 빌드 작업에서만 수행합니다. 실행 프로그램은 외부 분석 서비스나 API에 의존하지 않습니다. PyPI 공지 확인은 Qt/OpenSSL 등 모든 내장 네이티브 라이브러리의 완전한 보안 감사를 뜻하지 않습니다.
+워크플로와 빌드 스크립트가 존재한다는 사실을 실행 성공으로 취급하지 않습니다. 최종 실행 뒤 아래 증거를 갱신합니다. v0.1.0 테스트 121건과 Wine 스모크는 현재 버전의 결과가 아닙니다.
 
-## 배포 파일
+## 검증 증거와 산출물
 
-- `ArubaClientLiveTracker_v0.1.0_windows_x64.zip`: 실행 파일과 동적 DLL, 문서, 라이선스, 애플리케이션 재빌드 소스.
-- `ArubaClientLiveTracker_v0.1.0_third_party_sources.zip`: 정확한 Qtbase/Qt imageformats/Qt SVG/Qt translations/PySide/Shiboken/Paramiko의 수정하지 않은 대응 소스.
-- 각 ZIP의 `.sha256` 파일. 별도 애플리케이션 소스 번들도 작업 결과에 제공합니다.
+- 소스 GUI: `--demo --smoke-test` 및 `--multi-demo --smoke-test`의 종료 코드·JSON, 대상별 SQLite 관측.
+- Windows 빌드: CI/Release의 실제 Windows runner, pytest/ruff/의존성 공지, PyInstaller 로그.
+- Frozen EXE: `dist/validation/windows-exe-single-smoke.json`, `windows-exe-multi-smoke.json`. 빌드는 두 프로세스 모두 성공해야 ZIP을 만듭니다.
+- `ArubaClientLiveTracker_v0.2.0_windows_x64.zip`: EXE·동적 DLL·문서·고지·재귀적 `SOURCE`·검증 JSON.
+- `ArubaClientLiveTracker_v0.2.0_third_party_sources.zip`: Qt 6.8.3/PySide·Shiboken 및 Paramiko 5.0.0의 정확한 대응 소스. 변경되지 않은 소스는 캐시를 재사용합니다.
+- 각 ZIP의 `.sha256`. Release URL은 실제 게시 후 확인합니다.
 
-실행 ZIP은 Windows용입니다. Linux 실행 파일에 `.exe` 확장자를 붙인 것이 아닙니다. 이 환경에서는 Wine으로 Windows용 CPython과 PyInstaller를 실행해 제작했습니다. 실제 Windows 11에서의 검증과 동일하지 않습니다. **코드 서명되지 않았습니다.**
+공개 공지 검사는 빌드 시 PyPI 버전 공지를 확인하며 내장 네이티브 라이브러리 전체 감사를 의미하지 않습니다. 데스크톱 실행에는 외부 분석 서비스/API가 필요하지 않습니다.
 
-## 수행하지 못한 항목
+## 검증 경계
 
-- GitHub 신규 공개 저장소 생성: **권한 오류** — `Resource not accessible by integration (createRepository)`.
-- 원격 푸시, GitHub Actions 실행, GitHub Release 게시: **미수행**. 실제 성공 URL 없음.
-- Windows 11 네이티브/일반 사용자 실행, 125%·150% 배율 실기 검증: **미검증**.
-- 실제 ArubaOS 8.10/7240XM/AP-535 명령 지원, 계정 권한, MM 장애 전환 및 클러스터 로밍: **미검증**.
-- 장시간 실장비 부하 및 24시간 누적 실행: **미검증**. 반복 자동 테스트는 가속된 오프라인 검증입니다.
-- `build_windows.ps1` 전체를 네이티브 PowerShell에서 실행한 결과는 없습니다. 같은 Windows Python 테스트·PyInstaller·EXE 스모크 단계는 Wine에서 직접 실행했습니다.
+Qt offscreen은 실제 창 생성·수집·SQLite·정상 종료를 확인하지만 Windows 11 화면·배율 실기를 대체하지 않습니다. Wine 실행도 Windows 11 네이티브와 구분합니다. 실제 ArubaOS 8.10/7240XM/AP-535의 명령·권한·단위·MM/MD 장애 전환·실장비 10대 부하와 24시간 사용은 미검증입니다. 실행 파일은 코드 서명되지 않았습니다.
 
-## 수정한 빌드 문제
+## v0.1.0 과거 기록
 
-처음 검토한 Paramiko 3.5.1과 cryptography 46.0.3 및 일부 개발 의존성에서 공개 보안 공지를 확인하여 최종 고정 버전을 업데이트했습니다. setuptools 84에서 제거된 `pkg_resources`를 altgraph 0.17.4가 사용하여 빌드가 실패했으며, altgraph 0.17.5로 수정 후 재빌드에 성공했습니다. 실패를 무시하거나 테스트를 강제 성공 처리하지 않았습니다.
-
-GitHub 게시를 완료하는 정확한 명령은 [설치 안내](INSTALL_KO.md#저장소와-릴리스-게시)에 있습니다. 기존 네 저장소는 수정하지 않았습니다.
+기존 증거는 [validation/v0.1.0](validation/v0.1.0/BUILD_VALIDATION_KO.md)에 보관합니다. Linux/Windows Python 121건, Wine frozen 단일 데모, 배율 스모크, 당시 저장소 생성 오류는 모두 과거 버전의 기록입니다. 현재 원격 저장소는 존재하며 당시의 생성 실패를 현재 상태로 안내하지 않습니다.

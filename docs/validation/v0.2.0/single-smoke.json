@@ -1,0 +1,1 @@
+{"success": true, "reason": "GUI 생성·1대 백그라운드 데모 각 5회·대상별 SQLite 저장·정상 종료 확인", "target_count": 1, "observation_count": 5, "target_observations": {"192.0.2.100": 5}, "independent_macs": 1}

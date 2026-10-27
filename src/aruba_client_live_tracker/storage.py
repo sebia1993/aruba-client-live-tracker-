@@ -10,11 +10,14 @@ import html
 import json
 import sqlite3
 import threading
+from bisect import bisect_right
+from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .commands import parse_target
 from .models import Event, PollResult, utc_now
 
 UNKNOWN = "확인 불가"
@@ -29,6 +32,12 @@ _FIELDS = (
     ("source", "수집 출처"),
 )
 _OUTCOMES = {"ok": "정상 조회", "absent": "미접속 관측", "error": "조회 실패", "ambiguous": "선택 필요"}
+_COMBINED_HEADERS = [
+    "세션 ID", "검색 조건", "대상 IP", "대상 MAC", "대상 식별 관측 시각",
+    "기록 유형", "수집 시각", "유효 관측 시각", "상태", "가상 데이터", "오류",
+    *[label for _, label in _FIELDS], "항목별 상태", "수집 근거/항목별 관측 시각",
+    "이벤트", "관측 사실", "추정 원인", "추가 확인 사항",
+]
 
 
 def _instant(value: str) -> str:
@@ -267,6 +276,120 @@ class HistoryStore:
                           f"<dt>추정 원인</dt><dd>{escape(event['hypothesis'])}</dd>"
                           f"<dt>추가 확인 사항</dt><dd>{escape(event['recommendation'])}</dd></dl></article>")
         pieces.append("<p>이 보고서는 로컬에서 생성되었습니다. 외부 전송 기능은 없습니다.</p></html>")
+        destination = Path(path)
+        destination.write_text("".join(pieces), encoding="utf-8")
+        return destination
+
+    def _combined_rows(self, session_ids: Iterable[int], start: str | None,
+                       end: str | None) -> list[list[Any]]:
+        """Snapshot all selected sessions before any report file is opened.
+
+        Identity columns describe the last known target, never a new measurement.
+        A failed poll/event without a preceding observation uses only the query.
+        """
+        self._period(start, end)
+        ids = list(session_ids)
+        if not ids or any(type(session_id) is not int for session_id in ids):
+            raise ValueError("내보낼 추적 이력을 선택하십시오.")
+        ids = list(dict.fromkeys(ids))
+        timeline: list[tuple[str, int, int, list[Any]]] = []
+        with self._lock:
+            self._ensure_open()
+            # Resolve the whole selection first: an invalid ID must never be omitted.
+            sessions = [self._session(session_id) for session_id in ids]
+            for session in sessions:
+                session_id = session["id"]
+                observations = self.observations(session_id, start, end)
+                events = self.events(session_id, start, end)
+                history = sorted(self.observations(session_id),
+                                 key=lambda row: (row["collected_at"], row["id"]))
+                query_identity: dict[str, str] = {}
+                try:
+                    target = parse_target(session["query"])
+                    query_identity[target.kind] = target.value
+                except ValueError:
+                    pass
+                identity_times: list[str] = []
+                identities: list[tuple[dict[str, Any], str | None]] = []
+                known: dict[str, Any] = dict(query_identity)
+                for previous in history:
+                    if previous.get("ip") or previous.get("mac"):
+                        known.update({key: previous[key] for key in ("ip", "mac") if previous.get(key)})
+                        identity_times.append(previous["collected_at"])
+                        identities.append((dict(known), previous.get("observed_at")))
+
+                def identity(at: str | None) -> list[Any]:
+                    known = query_identity
+                    observed_at = None
+                    if at is not None:
+                        index = bisect_right(identity_times, at) - 1
+                        if index >= 0:
+                            known, observed_at = identities[index]
+                    return [session_id, session["query"], known.get("ip"), known.get("mac"), observed_at]
+
+                for row in observations:
+                    values = [*identity(row["collected_at"]), "관측", row["collected_at"],
+                              row.get("observed_at"), _OUTCOMES.get(row["outcome"], row["outcome"]),
+                              bool(session["simulated"]), row["error"],
+                              *[_field_value(row, key) for key, _ in _FIELDS],
+                              row.get("field_status"), row.get("evidence"),
+                              None, None, "원인 미확인", None]
+                    timeline.append((row["collected_at"], 0, row["id"], values))
+                for event in events:
+                    at = _instant(event["at"])
+                    values = [*identity(at), "이벤트", event["at"], None, event["severity"],
+                              bool(session["simulated"]), None, *[None for _ in _FIELDS],
+                              None, None, event["message"], event["facts"], event["hypothesis"],
+                              event["recommendation"]]
+                    timeline.append((at, 1, event["id"], values))
+                if not observations and not events:
+                    values = [*identity(None), "세션", None, None, "기간 내 기록 없음",
+                              bool(session["simulated"]), None, *[None for _ in _FIELDS],
+                              None, None, None, None, "원인 미확인", None]
+                    timeline.append(("~", 2, session_id, values))
+        timeline.sort(key=lambda entry: entry[:3])
+        return [entry[3] for entry in timeline]
+
+    def export_many_csv(self, session_ids: Iterable[int], path: Path,
+                        start: str | None = None, end: str | None = None) -> Path:
+        """Export selected sessions as one chronological, spreadsheet-safe timeline."""
+        rows = self._combined_rows(session_ids, start, end)
+        destination = Path(path)
+        with destination.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(_COMBINED_HEADERS)
+            writer.writerows([_csv_safe(value) for value in row] for row in rows)
+        return destination
+
+    def export_many_html(self, session_ids: Iterable[int], path: Path,
+                         start: str | None = None, end: str | None = None) -> Path:
+        """Export the same merged timeline with all caller-controlled values escaped."""
+        rows = self._combined_rows(session_ids, start, end)
+
+        def escape(value: Any) -> str:
+            return html.escape(_display(value), quote=True)
+
+        pieces = ["<!doctype html><html lang='ko'><meta charset='utf-8'>",
+                  "<meta name='viewport' content='width=device-width,initial-scale=1'>",
+                  "<title>Aruba 클라이언트 통합 추적 보고서</title><style>",
+                  "body{font-family:'Malgun Gothic',sans-serif;background:#101823;color:#e7eef7;"
+                  "margin:24px;line-height:1.6}section{overflow:auto}table{border-collapse:collapse;"
+                  "width:100%}th,td{border:1px solid #425169;padding:8px;text-align:left;"
+                  "vertical-align:top}th{background:#203047}h1{color:#7cdaeb}</style>",
+                  "<h1>Aruba Client Live Tracker 통합 보고서</h1>",
+                  f"<p>내보내기 기간: {escape(start)} ~ {escape(end)}</p>",
+                  "<p>기록은 수집 시각순이며 시간은 UTC 오프셋이 포함된 ISO 8601 형식입니다. "
+                  "가상 데이터는 실제 장비 관측이 아닙니다. 조회 실패는 연결 해제의 증거가 아닙니다. "
+                  "대상 IP/MAC은 검색 조건 또는 이전 관측의 식별 정보이며 현재 측정값을 뜻하지 않습니다. "
+                  "이벤트 행에는 새 측정값이 없습니다. 이전 조회값은 항목별 상태와 수집 근거의 관측 시각을 "
+                  "확인하십시오. PHY Rate는 실제 처리량이 아닙니다. 확인 불가 항목은 추정하지 않습니다.</p>",
+                  "<section><table><thead><tr>"]
+        pieces.extend(f"<th>{escape(label)}</th>" for label in _COMBINED_HEADERS)
+        pieces.append("</tr></thead><tbody>")
+        for row in rows:
+            pieces.append("<tr>" + "".join(f"<td>{escape(value)}</td>" for value in row) + "</tr>")
+        pieces.append("</tbody></table></section><p>이 보고서는 로컬에서 생성되었습니다. "
+                      "외부 전송 기능은 없습니다.</p></html>")
         destination = Path(path)
         destination.write_text("".join(pieces), encoding="utf-8")
         return destination

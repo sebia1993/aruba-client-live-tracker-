@@ -1,0 +1,133 @@
+{
+  "application_version": "0.2.0",
+  "checked_at": "2026-10-27T00:56:21.793926+00:00",
+  "source": "PyPI version JSON advisories",
+  "scope": "패키지 버전 공지 검사이며 내장 네이티브 라이브러리 전체 감사는 아닙니다.",
+  "packages": [
+    {
+      "package": "PySide6-Essentials",
+      "version": "6.8.3",
+      "vulnerabilities": []
+    },
+    {
+      "package": "shiboken6",
+      "version": "6.8.3",
+      "vulnerabilities": []
+    },
+    {
+      "package": "paramiko",
+      "version": "5.0.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "platformdirs",
+      "version": "4.3.7",
+      "vulnerabilities": []
+    },
+    {
+      "package": "bcrypt",
+      "version": "5.0.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "cffi",
+      "version": "2.0.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "cryptography",
+      "version": "50.0.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "PyNaCl",
+      "version": "1.6.2",
+      "vulnerabilities": []
+    },
+    {
+      "package": "pycparser",
+      "version": "2.23",
+      "vulnerabilities": []
+    },
+    {
+      "package": "invoke",
+      "version": "3.0.3",
+      "vulnerabilities": []
+    },
+    {
+      "package": "pytest",
+      "version": "9.1.1",
+      "vulnerabilities": []
+    },
+    {
+      "package": "pytest-qt",
+      "version": "4.5.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "ruff",
+      "version": "0.14.3",
+      "vulnerabilities": []
+    },
+    {
+      "package": "pyinstaller",
+      "version": "6.16.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "pyinstaller-hooks-contrib",
+      "version": "2025.9",
+      "vulnerabilities": []
+    },
+    {
+      "package": "altgraph",
+      "version": "0.17.5",
+      "vulnerabilities": []
+    },
+    {
+      "package": "packaging",
+      "version": "25.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "setuptools",
+      "version": "84.2.1",
+      "vulnerabilities": []
+    },
+    {
+      "package": "iniconfig",
+      "version": "2.1.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "pluggy",
+      "version": "1.6.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "Pygments",
+      "version": "2.21.0",
+      "vulnerabilities": []
+    },
+    {
+      "package": "colorama",
+      "version": "0.4.6",
+      "vulnerabilities": []
+    },
+    {
+      "package": "pefile",
+      "version": "2023.2.7",
+      "vulnerabilities": []
+    },
+    {
+      "package": "pywin32-ctypes",
+      "version": "0.2.3",
+      "vulnerabilities": []
+    },
+    {
+      "package": "typing_extensions",
+      "version": "4.16.0",
+      "vulnerabilities": []
+    }
+  ]
+}

@@ -170,3 +170,56 @@ def test_history_raw_retained_with_collection_time_between_polls(collector):
     assert history
     assert all("이력 조회=" in key for key in history)
     assert all(second.raw.get(key) == value for key, value in history.items())
+
+
+def test_shared_runner_collectors_reuse_and_close_only_their_owner(monkeypatch, tmp_path):
+    from aruba_client_live_tracker.session_pool import SharedSessionPool
+
+    FakeSSH.instances = []
+    FakeSSH.failures = {}
+    FakeSSH.mm_output = global_output()
+    monkeypatch.setattr('aruba_client_live_tracker.session_pool.SSHSession', FakeSSH)
+    credentials = Credentials('lab', 'synthetic')
+    pool = SharedSessionPool(credentials, tmp_path / 'known_hosts', None)
+    collectors = [LiveCollector([MM, MD], credentials, tmp_path / 'known_hosts',
+                                command_runner=pool.for_owner(str(index))) for index in range(2)]
+    try:
+        for collector in collectors:
+            assert collector.poll(parse_target(MAC)).outcome == Outcome.OK
+        assert len(FakeSSH.instances) == 2
+        collectors[0].close()
+        assert not any(session.closed for session in FakeSSH.instances)
+        assert collectors[1].poll(parse_target(MAC)).outcome == Outcome.OK
+        collectors[1].close()
+        assert all(session.closed for session in FakeSSH.instances)
+    finally:
+        pool.close()
+
+
+def test_shared_md_change_releases_only_changed_owner_and_refreshes_history(monkeypatch, tmp_path):
+    from aruba_client_live_tracker.session_pool import SharedSessionPool
+
+    FakeSSH.instances = []
+    FakeSSH.failures = {}
+    FakeSSH.mm_output = global_output()
+    monkeypatch.setattr('aruba_client_live_tracker.session_pool.SSHSession', FakeSSH)
+    credentials = Credentials('lab', 'synthetic')
+    pool = SharedSessionPool(credentials, tmp_path / 'known_hosts', None)
+    devices = [MM, MD, Device('MD-2', '198.51.100.21', mappings=('192.0.2.21',))]
+    collectors = [LiveCollector(devices, credentials, tmp_path / 'known_hosts',
+                                command_runner=pool.for_owner(str(index))) for index in range(2)]
+    try:
+        for collector in collectors:
+            assert collector.poll(parse_target(MAC)).outcome == Outcome.OK
+        old = FakeSSH.instances[1]
+        FakeSSH.mm_output = global_output().replace('192.0.2.20', '192.0.2.21')
+        assert collectors[0].poll(parse_target(MAC)).outcome == Outcome.OK
+        assert not old.closed
+        new = FakeSSH.instances[2]
+        assert any('auth-tracebuf' in command for command in new.commands)
+        collectors[1].close()
+        assert old.closed
+    finally:
+        for collector in collectors:
+            collector.close()
+        pool.close()

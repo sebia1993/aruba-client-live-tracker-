@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from collections import deque
-from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -191,37 +190,6 @@ class SignalChart(QWidget):
         painter.end()
 
 
-@dataclass
-class ApprovalRequest:
-    device: Device
-    algorithm: str
-    fingerprint: str
-    cancel: threading.Event
-    deadline: float
-    answer: bool = False
-    done: threading.Event = field(default_factory=threading.Event)
-
-
-class PollWorker(QThread):
-    completed = Signal(int, object)
-    approval_requested = Signal(object)
-
-    def __init__(self, collector, target, selected_mac, generation: int, cancel: threading.Event):
-        super().__init__()
-        self.collector = collector
-        self.target = target
-        self.selected_mac = selected_mac
-        self.generation = generation
-        self.cancel = cancel
-
-    def run(self):
-        try:
-            result = self.collector.poll(self.target, selected_mac=self.selected_mac, cancel=self.cancel)
-        except Exception:
-            result = PollResult(Outcome.ERROR, error="조회 처리 중 오류가 발생했습니다. 장비 설정과 CLI 진단을 확인하세요.")
-        self.completed.emit(self.generation, result)
-
-
 class DeviceDialog(QDialog):
     def __init__(self, parent=None, device: Device | None = None):
         super().__init__(parent)
@@ -325,6 +293,7 @@ class HistoryDialog(QDialog):
         self.store = store
         layout = QVBoxLayout(self)
         self.grid = table(["번호", "검색 조건", "모드", "시작 시각", "종료 시각"])
+        self.grid.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.grid)
         for session in store.sessions():
             add_row(self.grid, [session["id"], session["query"], "가상 데이터" if session["simulated"] else "장비 조회",
@@ -364,20 +333,23 @@ class HistoryDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "기간 확인", "시작/끝을 시간대가 포함된 ISO 시각으로 입력하세요. 시작은 끝보다 늦을 수 없습니다.")
             return None
-        return int(self.grid.item(row, 0).text()), start, end
+        rows = sorted({index.row() for index in self.grid.selectionModel().selectedRows()}) or [row]
+        return [int(self.grid.item(index, 0).text()) for index in rows], start, end
 
     def show_history(self):
         selected = self.selection()
         if not selected:
             return
         session, start, end = selected
-        observations = self.store.observations(session, start, end)
-        events = self.store.events(session, start, end)
+        observations = [dict(row, session_id=sid) for sid in session for row in self.store.observations(sid, start, end)]
+        events = [dict(row, session_id=sid) for sid in session for row in self.store.events(sid, start, end)]
+        observations.sort(key=lambda row: row.get("collected_at", ""))
+        events.sort(key=lambda row: row.get("at", ""))
         text = [f"관측 {len(observations)}건 · 이벤트 {len(events)}건", "시각은 저장된 ISO 시각이며 원인은 별도 검증이 필요합니다."]
         for row in observations[-200:]:
-            text.append(f"{display_time(row.get('collected_at'))} | {row.get('outcome')} | AP {row.get('ap_name') or '확인 불가'} | SNR {row.get('snr', '확인 불가')} | {row.get('error', '')}")
+            text.append(f"세션 {row['session_id']} | {display_time(row.get('collected_at'))} | {row.get('outcome')} | AP {row.get('ap_name') or '확인 불가'} | SNR {row.get('snr', '확인 불가')} | {row.get('error', '')}")
         for event in events[-200:]:
-            text.append(f"{display_time(event.get('at'))} | {event.get('message')} | 추정: {event.get('hypothesis')} | 추가 확인: {event.get('recommendation')}")
+            text.append(f"세션 {event['session_id']} | {display_time(event.get('at'))} | {event.get('message')} | 추정: {event.get('hypothesis')} | 추가 확인: {event.get('recommendation')}")
         self.preview.setPlainText("\n".join(text))
 
     def export(self, extension: str):
@@ -389,14 +361,14 @@ class HistoryDialog(QDialog):
             return
         session, start, end = selected
         try:
-            getattr(self.store, f"export_{extension}")(session, Path(path), start=start, end=end)
+            getattr(self.store, f"export_many_{extension}")(session, Path(path), start=start, end=end)
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "내보내기 실패", str(exc))
             return
         QMessageBox.information(self, "내보내기 완료", "보고서를 선택한 PC 경로에 저장했습니다. 외부로 전송하지 않았습니다.")
 
 
-class MainWindow(QMainWindow):
+class _Dashboard(QMainWindow):
     poll_applied = Signal(object)
     host_key_requested = Signal(object)
 
@@ -416,7 +388,7 @@ class MainWindow(QMainWindow):
             settings_error = "장비 설정을 읽을 수 없습니다. 원본 파일은 보존했습니다. 장비 연결 설정에서 내용을 확인해 저장하세요."
         self.store = HistoryStore(self.data_path / "history.sqlite3")
         self.tracker = Tracker()
-        self.worker: PollWorker | None = None
+        self.worker = None
         self.collector = None
         self.cancel_event = threading.Event()
         self.generation = 0
@@ -631,117 +603,6 @@ class MainWindow(QMainWindow):
             return None
         return Credentials(username.text().strip(), password.text())
 
-    def start_tracking(self):
-        from .commands import parse_target
-        try:
-            target = parse_target(self.query.text())
-        except ValueError as exc:
-            QMessageBox.warning(self, "검색값 확인", str(exc))
-            return
-        if self.worker is not None:
-            self.pending_start = True
-            self.stop_tracking(clear_pending=False)
-            return
-        self.stop_tracking()
-        demo = bool(self.mode.currentData())
-        if demo:
-            from .demo import DemoCollector
-            collector = DemoCollector(scenario=self.scenario.currentData())
-        else:
-            from .collector import LiveCollector
-            if not self.devices:
-                QMessageBox.warning(self, "장비 설정 필요", "장비 연결 설정에서 MM과 담당 MD를 먼저 등록하세요.")
-                return
-            credentials = self._credentials()
-            if credentials is None:
-                return
-            collector = LiveCollector(self.devices, credentials, self.data_path / "known_hosts", self._request_host_key)
-        self.target = target
-        self.collector = collector
-        self.tracker.reset()
-        self.selected_mac = None
-        self.last_result = None
-        self.session_id = self.store.start_session(target.value, simulated=demo)
-        self.active = True
-        self.paused = False
-        self.generation += 1
-        self.chart.clear()
-        self.events_table.setRowCount(0)
-        self.roaming_table.setRowCount(0)
-        for value in self.fields.values():
-            value.setText("확인 불가")
-        self.valid_time.setText("마지막 유효 관측: 없음")
-        self.query.setText(target.value)
-        self._button_state()
-        self.refresh_now()
-
-    def stop_tracking(self, clear_pending: bool = True):
-        self.active = False
-        self.paused = False
-        self.next_due = None
-        self.generation += 1
-        self.cancel_event.set()
-        if clear_pending:
-            self.pending_start = False
-        if self.session_id is not None:
-            self.store.end_session(self.session_id)
-            self.session_id = None
-        if self.worker is None and self.collector is not None:
-            self.collector.close()
-            self.collector = None
-        self.connection_state.setText("추적 중지 · 마지막 관측 보존" if self.last_result else "추적 대기")
-        self._button_state()
-
-    def toggle_pause(self):
-        if not self.active:
-            return
-        self.paused = not self.paused
-        self.next_due = None if self.paused else time.monotonic()
-        self._button_state()
-        self._tick()
-
-    def _interval_changed(self):
-        if self.active and not self.paused and self.worker is None:
-            self.next_due = time.monotonic() + self.interval.currentData()
-
-    def refresh_now(self):
-        if not self.active or self.worker is not None or self.collector is None or self.selection_pending:
-            return
-        self.next_due = None
-        self.cancel_event = threading.Event()
-        worker = PollWorker(self.collector, self.target, self.selected_mac, self.generation, self.cancel_event)
-        self.worker = worker
-        worker.completed.connect(self._result_received)
-        worker.finished.connect(self._worker_finished)
-        self.connection_state.setText("조회 중 · 장비 응답 대기" if not self.mode.currentData() else "조회 중 · 가상 시나리오")
-        self._button_state()
-        worker.start()
-
-    def _result_received(self, generation: int, result: PollResult):
-        if generation != self.generation or not self.active:
-            return
-        if result.outcome == Outcome.AMBIGUOUS:
-            self.selection_pending = True
-            self.next_due = None
-        self._consume_result(result)
-        if result.outcome == Outcome.AMBIGUOUS:
-            candidates = result.candidates
-            labels = [f"{c.ip}  |  {c.mac}  |  MD {c.current_switch}" for c in candidates]
-            try:
-                selected, ok = QInputDialog.getItem(self, "클라이언트 선택", "여러 결과가 있습니다. 추적할 클라이언트를 직접 선택하세요.", labels, 0, False)
-            finally:
-                self.selection_pending = False
-            if generation != self.generation or not self.active:
-                return
-            if ok and selected in labels:
-                self.selected_mac = candidates[labels.index(selected)].mac
-                # Delay until the current worker's finished signal has been handled.
-                QTimer.singleShot(50, self.refresh_now)
-            else:
-                self.paused = True
-                self.status_note.setText("클라이언트를 선택하지 않아 추적을 일시 정지했습니다.")
-            self._button_state()
-
     def _consume_result(self, result: PollResult):
         view = self.tracker.apply(result)
         result = view.result
@@ -785,76 +646,6 @@ class MainWindow(QMainWindow):
                     transition("role_before", "role_after"), event.message])
         self.poll_applied.emit(result)
 
-    def _worker_finished(self):
-        worker = self.worker
-        self.worker = None
-        if worker is not None:
-            worker.deleteLater()
-        if not self.active and self.collector is not None:
-            self.collector.close()
-            self.collector = None
-        if self.pending_close:
-            self.close()
-            return
-        if self.pending_start:
-            self.pending_start = False
-            self.start_tracking()
-            return
-        if self.active and not self.paused and not self.selection_pending:
-            self.next_due = time.monotonic() + self.interval.currentData()
-        self._button_state()
-
-    def _tick(self):
-        if self.active and not self.paused and not self.selection_pending and self.worker is None and self.next_due is not None and time.monotonic() >= self.next_due:
-            self.refresh_now()
-        last = display_time(self.last_result.collected_at) if self.last_result else "없음"
-        if self.worker is not None:
-            next_text = "현재 조회 중"
-        elif self.paused:
-            next_text = "일시 정지"
-        elif self.next_due is not None:
-            remaining = max(0, self.next_due - time.monotonic())
-            due = datetime.now().astimezone() + timedelta(seconds=remaining)
-            next_text = f"{due:%H:%M:%S} ({remaining:.0f}초 후)"
-        else:
-            next_text = "대기"
-        self.timing.setText(f"마지막 수집 시각: {last} · 다음 조회: {next_text} · 조회 완료 후 {self.interval.currentData()}초 간격")
-
-    def _request_host_key(self, device, algorithm, fingerprint, deadline=None) -> bool:
-        deadline = min(deadline if deadline is not None else float("inf"), time.monotonic() + 45)
-        request = ApprovalRequest(device, algorithm, fingerprint, self.cancel_event, deadline)
-        self.host_key_requested.emit(request)
-        while not request.done.wait(0.1):
-            if request.cancel.is_set() or time.monotonic() >= deadline:
-                request.cancel.set()
-                return False
-        return request.answer and not request.cancel.is_set()
-
-    def _approve_key(self, request: ApprovalRequest):
-        if request.cancel.is_set() or not self.active or time.monotonic() >= request.deadline:
-            request.done.set()
-            return
-        box = QMessageBox(self)
-        box.setWindowTitle("최초 SSH 서버 키 확인")
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setTextFormat(Qt.TextFormat.PlainText)
-        box.setText(f"{request.device.name} ({request.device.host}:{request.device.port})\n\n알고리즘: {request.algorithm}\nSHA-256 지문:\n{request.fingerprint}\n\n관리자가 제공한 지문과 일치하는지 별도 경로로 확인한 후 승인하세요.")
-        approve = box.addButton("지문 확인 후 승인", QMessageBox.ButtonRole.AcceptRole)
-        reject = box.addButton("접속 취소", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(reject)
-        timer = QTimer(box)
-        def countdown():
-            remaining = max(0, request.deadline - time.monotonic())
-            box.setInformativeText(f"승인 대기 제한 시간: {remaining:.0f}초")
-            if request.cancel.is_set() or remaining <= 0:
-                box.reject()
-        timer.timeout.connect(countdown)
-        timer.start(100)
-        countdown()
-        box.exec()
-        request.answer = box.clickedButton() is approve and not request.cancel.is_set()
-        request.done.set()
-
     def open_settings(self):
         dialog = SettingsDialog(self.devices, self.settings_path, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -893,7 +684,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(dialog)
         text = QTextEdit()
         text.setReadOnly(True)
-        text.setPlainText("사용 순서\n\n1. 처음에는 데모 모드를 선택하고 추적 시작을 누르세요. 모든 데이터는 가상입니다.\n2. 실제 조회는 장비 연결 설정에서 MM Primary·Standby와 MD를 등록하세요. Current switch와 관리 IP가 다르면 매핑을 등록합니다.\n3. 장비 연결 모드를 선택하고 IPv4 또는 MAC을 입력하세요. SSH 계정은 실행 중에만 사용합니다.\n4. 최초 접속 시 서버 키 SHA-256 지문을 별도 신뢰 경로로 확인하세요. 변경된 키는 자동 승인하지 않습니다.\n5. 여러 클라이언트가 검색되면 직접 선택하세요. 추적 중 다른 대상을 입력하고 추적 시작 / 대상 전환을 누를 수 있습니다.\n\n지표 읽기\n\nSNR은 신호와 잡음의 차이입니다. 마지막 패킷 시각의 값일 수 있으며 높은 값이 일반적으로 유리합니다.\nRSSI는 실제 신호 출처가 있을 때만 표시합니다. ClientMatch 과거값은 현재 RSSI로 사용하지 않습니다.\nTx/Rx PHY Rate는 무선 링크 속도이며 실제 다운로드/업로드 속도가 아닙니다.\nRole은 인증 이후 적용되는 접근 정책입니다. Role만으로 인증 성공이나 장애 원인을 단정하지 않습니다.\n\n실패와 연결 해제\n\n조회 실패 시 이전 조회값을 보존합니다. 그래프의 공백은 유효 관측이 없다는 뜻입니다. SSH 실패는 로밍·연결 해제로 기록하지 않습니다. 여러 정상 관측의 단말 부재로 연결 해제를 판단합니다.\n\n이력과 개인정보\n\nSQLite와 설정, 신뢰한 서버 키는 사용자별 로컬 데이터 폴더에 저장합니다. 추적 이력에서 기간을 선택해 CSV/HTML로 내보낼 수 있습니다. 원문·보고서에는 사용자 정보가 포함될 수 있으므로 공개 GitHub에 업로드하지 마세요. 외부 분석/자동 업로드 기능은 없습니다.\n\n검증 범위\n\nArubaOS CLI 지원과 권한, 출력 형식은 버전·실행 위치에 따라 다릅니다. 자동 테스트는 가상 출력 기반이며 실제 ArubaOS 8.10 장비 검증은 사용자가 수행해야 합니다.")
+        text.setPlainText("사용 순서\n\n1. 처음에는 데모 모드를 선택하고 추적 시작을 누르세요. 모든 데이터는 가상입니다.\n2. 실제 조회는 장비 연결 설정에서 MM Primary·Standby와 MD를 등록하세요. Current switch와 관리 IP가 다르면 매핑을 등록합니다.\n3. 장비 연결 모드를 선택하고 IPv4 또는 MAC을 입력하세요. SSH 계정은 실행 중에만 사용합니다.\n4. 최초 접속 시 서버 키 SHA-256 지문을 별도 신뢰 경로로 확인하세요. 변경된 키는 자동 승인하지 않습니다.\n5. 다중 모니터링에서는 최대 10개 대상을 등록하거나 여러 줄로 붙여넣습니다. 목록의 행을 선택하면 해당 대상의 기존 상세와 그래프가 표시됩니다. 선택 대상 또는 전체 시작·중지·일시 정지·재개·새로고침을 사용할 수 있습니다.\n6. 여러 클라이언트가 검색된 행은 검색 결과 선택 버튼을 눌러 직접 결정하세요. 다른 대상은 계속 수집합니다.\n7. 데모/장비 연결 모드와 단일/다중 추적, 시나리오, 장비 설정은 전체 중지 후 변경하세요. 이력에서 여러 세션을 선택해 통합 보고서를 저장할 수 있습니다.\n\n지표 읽기\n\nSNR은 신호와 잡음의 차이입니다. 마지막 패킷 시각의 값일 수 있으며 높은 값이 일반적으로 유리합니다.\nRSSI는 실제 신호 출처가 있을 때만 표시합니다. ClientMatch 과거값은 현재 RSSI로 사용하지 않습니다.\nTx/Rx PHY Rate는 무선 링크 속도이며 실제 다운로드/업로드 속도가 아닙니다.\nRole은 인증 이후 적용되는 접근 정책입니다. Role만으로 인증 성공이나 장애 원인을 단정하지 않습니다.\n\n실패와 연결 해제\n\n조회 실패 시 이전 조회값을 보존합니다. 그래프의 공백은 유효 관측이 없다는 뜻입니다. SSH 실패는 로밍·연결 해제로 기록하지 않습니다. 여러 정상 관측의 단말 부재로 연결 해제를 판단합니다.\n\n이력과 개인정보\n\nSQLite와 설정, 신뢰한 서버 키는 사용자별 로컬 데이터 폴더에 저장합니다. 추적 이력에서 기간을 선택해 CSV/HTML로 내보낼 수 있습니다. 원문·보고서에는 사용자 정보가 포함될 수 있으므로 공개 GitHub에 업로드하지 마세요. 외부 분석/자동 업로드 기능은 없습니다.\n\n검증 범위\n\nArubaOS CLI 지원과 권한, 출력 형식은 버전·실행 위치에 따라 다릅니다. 자동 테스트는 가상 출력 기반이며 실제 ArubaOS 8.10 장비 검증은 사용자가 수행해야 합니다.")
         layout.addWidget(text)
         dialog.exec()
 
@@ -902,13 +693,9 @@ class MainWindow(QMainWindow):
         if ok:
             self.setStyleSheet(STYLE.replace("font-size: 13px", f"font-size: {size}px"))
 
-    def closeEvent(self, event):  # noqa: N802
-        self.stop_tracking()
-        if self.worker is not None:
-            self.pending_close = True
-            self.status_note.setText("현재 SSH 작업을 취소하고 연결을 정리하는 중입니다.")
-            event.ignore()
-            return
-        self.timer.stop()
-        self.store.close()
-        event.accept()
+# The public dashboard coordinates both single and multiple target monitoring.
+def __getattr__(name):
+    if name == 'MainWindow':
+        from .ui_monitoring import MainWindow
+        return MainWindow
+    raise AttributeError(name)
