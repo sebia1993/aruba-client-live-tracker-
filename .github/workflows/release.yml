@@ -1,0 +1,44 @@
+name: Windows Release
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.1.0' }
+          "APP_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Check pinned dependency advisories
+        run: python scripts/check_dependencies.py
+      - name: Build, tests, EXE smoke, archive and checksum
+        shell: pwsh
+        run: ./build_windows.ps1 -Version $env:APP_VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ArubaClientLiveTracker-windows-x64
+          path: |
+            dist/ArubaClientLiveTracker_v*.zip
+            dist/*.sha256
+          if-no-files-found: error
+      - name: Publish version-tag release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create $env:GITHUB_REF_NAME dist/ArubaClientLiveTracker_v*.zip dist/*.sha256 --verify-tag --title "Aruba Client Live Tracker $env:APP_VERSION" --notes-file docs/RELEASE_NOTES_KO.md
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release 게시 실패' }

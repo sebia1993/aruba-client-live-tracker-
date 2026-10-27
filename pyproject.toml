@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aruba-client-live-tracker"
+version = "0.1.0"
+description = "한국어 ArubaOS 8 클라이언트 추적 데스크톱"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["PySide6-Essentials==6.8.3", "paramiko==5.0.0", "platformdirs==4.3.7"]
+
+[project.scripts]
+aruba-client-live-tracker = "aruba_client_live_tracker.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = ["LICENSES"]
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

@@ -1,0 +1,49 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+      - name: Install locked dependencies
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pip install --no-deps -e .
+      - name: Check pinned dependency advisories
+        run: python scripts/check_dependencies.py
+      - name: Static checks
+        run: python -m ruff check src tests scripts
+      - name: Tests including security and demo GUI
+        run: python -m pytest -q
+      - name: Demo process smoke
+        run: python -m aruba_client_live_tracker.main --demo --smoke-test --data-dir smoke-data
+      - name: Windows EXE build and smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./build_windows.ps1 -SkipInstall
+      - name: Retain Windows artifacts
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            dist/ArubaClientLiveTracker_v*.zip
+            dist/*.sha256
+          if-no-files-found: error
