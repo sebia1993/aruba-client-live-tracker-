@@ -79,6 +79,14 @@
 
 문서의 해당 예시는 표시된 행 수와 `Total Switches`가 달라 완전한 CLI 응답으로 사용할 수 없습니다. 자동 검사는 같은 열 구조의 RFC 5737/RFC 3849 가상 주소와 완전한 행 수로 수행합니다. 이 형식의 지원 누락은 확인했지만 사용자가 보고한 오류의 실제 원인이 IPv6인지는 확인되지 않았습니다. [해당 패치 릴리스 노트](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/Release-Notes/810/ArubaOS-8%2E10%2E0%2E10-Release-Notes.pdf)에서도 이 앱의 파싱 오류를 장비 결함으로 설명하는 근거는 확인하지 못했습니다.
 
+## SSH 페이지 넘김 안내
+
+2026-10-27 [공식 paging 문서](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/paging.htm)에서 페이지 넘김이 기본 활성화되고 SSH 세션별로 적용됨을 확인했습니다. 큰 터미널 크기를 요청했다고 페이지 안내가 없어지는 것으로 가정하지 않습니다.
+
+ArubaOS 8.10 CLI Reference PDF 물리 1629·3361쪽과 공식 [show ap arm status](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-ap-arm-status.htm), [show snmp trap-list](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-snmp-trap-lst.htm) 예시는 `--More-- (q) quit (u) pageup (/) search (n) repeat` 전체 안내문을 보여 줍니다. 이 두 명령은 페이지 안내 형식을 확인한 문서이며 앱에서 새로 실행하지 않습니다.
+
+v0.3.5는 SSH 응답에서 전체 안내문과 인접한 화면 지우기 제어를 제거한 뒤 기존 파서에 전달합니다. 기존 코드는 `--More--`만 제거하여 `(q) quit (u)` 12자와 `pageup (/) sea` 14자를 IP/IPv6 셀로 읽을 수 있었습니다. 페이지당 스페이스 한 번으로 다음 출력을 받고, 페이지 수·전체 수신 크기·시간 제한과 취소를 유지합니다. `no paging`이나 다른 설정 명령을 추가하지 않습니다. 공식 문서의 안내 문자열은 확인됐지만 화면 지우기 바이트·TCP 분할의 시험은 합성 전송 자료이며 실장비 캡처가 아닙니다.
+
 ## 사용자 장비에서 확인할 항목
 
 발견 시 seed와 선택한 장비의 읽기 전용 명령 권한·역할·주소를 먼저 확인합니다. 처음에는 60초 주기로 대상 MAC 하나를 조회하여 MM Primary/Standby, Current switch 매핑, MD 사용자 결과와 AP 소유 관계를 확인한다. 각 명령의 거부 여부·필터 결과·필드 단위와 수집 시간을 확인한 후 15초로 낮춘다. AP-535 및 7240XM의 실제 카운터 의미, 클러스터 UAC/AAC 차이, 시계/시간대, dormant/비활성 행, 읽기 권한, 출력 폭·페이지 처리, 절전 단말의 오래된 마지막 패킷 값은 운영 환경에서 검증해야 한다. 실제 출력 원문을 공개 이슈나 저장소에 첨부하지 않는다.

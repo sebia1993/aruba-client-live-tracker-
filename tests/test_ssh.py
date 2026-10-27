@@ -193,6 +193,90 @@ def test_pagination_sends_only_space(make):
     assert client.channel.sent == ['show global-user-table list ip "192.0.2.100"\n', " "]
 
 
+# Official AOS 8.10 CLI Reference, physical pp. 1629 and 3361. Transport
+# fragmentation/erase sequences below are synthetic, not captured device bytes.
+ARUBA_PAGER = '--More-- (q) quit (u) pageup (/) search (n) repeat'
+
+
+class PagedChannel(Channel):
+    def __init__(self, pager=ARUBA_PAGER, *, split=0, erase='', newline=True, pages=1):
+        super().__init__()
+        self.pager = pager
+        self.split = split
+        self.erase = erase
+        self.newline = newline
+        self.pages = pages
+        self.page = 0
+
+    def _page(self, prefix):
+        if self.page < self.pages:
+            self.pending.append((prefix + self.pager[:self.split]).encode())
+            self.pending.append(self.pager[self.split:].encode())
+        else:
+            self.pending.append((prefix + '\r\n(lab) #').encode())
+
+    def sendall(self, value):
+        self.sent.append(value)
+        if value == ' ':
+            self.page += 1
+            separator = '\r\n' if self.newline else ''
+            self._page(self.erase + separator + f'    row {self.page + 1}' +
+                       ('\r\n' if self.page < self.pages else ''))
+        else:
+            self._page(value + 'row 1\r\n')
+
+
+@pytest.mark.parametrize('split,erase,newline', [
+    (0, '', True), (3, '', True), (8, '', True), (25, '', True),
+    (8, '\x08' * len(ARUBA_PAGER), False),
+    (8, '\x08' * len(ARUBA_PAGER) + ' ' * len(ARUBA_PAGER) + '\x08' * len(ARUBA_PAGER), True),
+    (8, '\x08' * len(ARUBA_PAGER) + ' ' * len(ARUBA_PAGER) + '\x08' * len(ARUBA_PAGER), False),
+    (8, '\r' + ' ' * len(ARUBA_PAGER) + '\r', False),
+    (8, '\r\x1b[2K', False),
+])
+def test_full_aruba_pager_never_leaks_help_or_erase_padding_into_rows(make, split, erase, newline):
+    channel = PagedChannel(split=split, erase=erase, newline=newline)
+    session, _, _ = make(channel=channel)
+    try:
+        output = session.run('show switches')
+        assert [line for line in output.splitlines() if line.strip()] == ['row 1', '    row 2']
+        assert channel.sent == ['show switches\n', ' ']
+    finally:
+        session.close()
+
+
+def test_full_aruba_pager_advances_once_per_page_even_with_ansi_and_fragmentation(make):
+    channel = PagedChannel(pager='\x1b[7m' + ARUBA_PAGER + '\x1b[0m', split=12, pages=2)
+    session, _, _ = make(channel=channel)
+    try:
+        output = session.run('show switches')
+        assert [line for line in output.splitlines() if line.strip()] == ['row 1', '    row 2', '    row 3']
+        assert channel.sent == ['show switches\n', ' ', ' ']
+    finally:
+        session.close()
+
+
+def test_help_like_data_without_pager_marker_is_not_removed(make):
+    data = 'row 1\r\n(q) quit (u) pageup (/) search (n) repeat\r\nrow 2'
+    session, _, _ = make(channel=Channel(data + '\r\n(lab) #'))
+    try:
+        assert session.run('show switches') == data.replace('\r', '')
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize('pager', ['--More--', 'Press <space> to continue'])
+def test_short_pagers_preserve_the_next_row(make, pager):
+    channel = PagedChannel(pager=pager, split=3)
+    session, _, _ = make(channel=channel)
+    try:
+        output = session.run('show switches')
+        assert [line for line in output.splitlines() if line.strip()] == ['row 1', '    row 2']
+        assert channel.sent == ['show switches\n', ' ']
+    finally:
+        session.close()
+
+
 def test_known_key_reconnect_skips_approval(make):
     first, _, first_calls = make()
     first.run('show global-user-table list ip "192.0.2.100"')

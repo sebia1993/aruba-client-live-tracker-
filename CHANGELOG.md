@@ -1,5 +1,14 @@
 # 변경 이력
 
+## 0.3.5 — 2026-10-27
+
+- 공식 [ArubaOS 8.10 CLI Reference](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/810/ArubaOS-8.x-CLI-Reference-Guide.pdf) 1629·3361쪽의 전체 페이저 `--More-- (q) quit (u) pageup (/) search (n) repeat`를 SSH 출력에서 완전히 제거
+- 기존 정리가 `--More--`만 지워 안내 문구를 장비 주소 행으로 남기는 문제를 재현했으며, 합성 자료에서 보고된 출력 9행·IPv4 열 12자·IPv6 열 14자의 오류 구조를 확인
+- 주소 파서의 엄격한 검증을 유지하고 추가 Aruba CLI 명령 없이 SSH 페이저 처리 범위만 수정
+- 패키지·Windows 빌드·대응 소스 ZIP 버전을 0.3.5로 구분하며 의존성·SSH 신뢰 정책은 유지
+
+2026-10-27 공식 [paging 문서](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/paging.htm)에서 세션별 기본 활성화를 확인했습니다. 단편 수신·화면 지우기·여러 페이지·다음 행 보존 회귀를 추가했습니다. 자동 테스트·Windows EXE·Release와 실제 다운로드 결과는 [검증 기록](docs/BUILD_VALIDATION_KO.md)에 기록합니다. 사용자 장비에서의 해결 확인은 아직 완료하지 않았습니다.
+
 ## 0.3.4 — 2026-10-27
 
 - 공식 ArubaOS 8.10 User Guide 861쪽에 있는 `IP Address=None`·유효 IPv6 행을 발견 파서에서 지원

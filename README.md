@@ -1,8 +1,8 @@
-# Aruba Client Live Tracker v0.3.4
+# Aruba Client Live Tracker v0.3.5
 
 ArubaOS 8 환경에서 최대 **10대 무선 클라이언트**의 접속 정보, 무선 품질과 AP 변경을 함께 추적하는 한국어 Windows 데스크톱 도구입니다. MM 이름/IP에서 장비 목록을 발견하고 선택한 장비만 검사하여 등록을 돕습니다. 기존 단일 추적과 수동 MM/MD 설정도 사용할 수 있습니다. MM의 `Current switch`를 등록된 MD에 매핑하여 해당 MD만 읽기 전용으로 조회하며, 실행에 클라우드 서비스가 필요하지 않습니다.
 
-v0.3.4는 공식 ArubaOS 8.10 문서의 IPv4 부재/IPv6 장비 행을 지원하고, MM 목록 조회 오류와 선택 장비 검사 결과를 구분합니다. IPv6 표기 차이도 담당 MD 매핑에서 비교합니다. 주소 오류와 불완전한 목록은 계속 거부합니다. 공식 예시의 지원 누락은 확인했지만 사용자가 보고한 장애의 실제 원인과 해결 여부는 실장비 검증이 필요합니다. Linux·Windows 351개 테스트와 Windows EXE 단일/10대 실행, 공개 다운로드 검증을 통과했습니다. 자동 검사·Windows EXE·배포 결과는 [현재 검증 기록](docs/BUILD_VALIDATION_KO.md), 이전 배포 증거는 [v0.3.3 기록](docs/validation/v0.3.3/BUILD_VALIDATION_KO.md)에 보존합니다.
+v0.3.5는 SSH 출력의 Aruba 페이지 넘김 안내를 완전히 제거하여 장비 주소 행으로 오인하던 문제를 수정합니다. 공식 문서의 안내문으로 보고된 출력 9행·IP 열 12자·IPv6 열 14자 오류를 재현했고, 분할 수신·여러 페이지·화면 지우기와 다음 데이터 행 보존을 검사합니다. 주소·행 수 검증과 조회 명령은 유지합니다. 자동 검사·Windows EXE·배포 결과는 [현재 검증 기록](docs/BUILD_VALIDATION_KO.md), 이전 배포 증거는 [v0.3.4 기록](docs/validation/v0.3.4/BUILD_VALIDATION_KO.md)에 보존합니다. 실제 MM에서의 해결 여부는 사용자 검증이 필요합니다.
 
 ![가상 데이터 10대를 동시 추적하는 v0.3.0 Qt 대시보드](docs/assets/v030-multi-dashboard.png)
 
@@ -14,9 +14,9 @@ v0.3.4는 공식 ArubaOS 8.10 문서의 IPv4 부재/IPv6 장비 행을 지원하
 
 ## 다운로드와 실행
 
-공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases)에서 게시된 Windows 실행 ZIP, SHA-256 및 LGPL 대응 소스를 받으십시오. [v0.3.4 실행 ZIP 다운로드](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.4/ArubaClientLiveTracker_v0.3.4_windows_x64.zip) · [체크섬 및 대응 소스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.4). 게시 여부와 실제 다운로드 검증 결과는 [검증 기록](docs/BUILD_VALIDATION_KO.md)을 확인하십시오.
+공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases)에서 게시된 Windows 실행 ZIP, SHA-256 및 LGPL 대응 소스를 받으십시오. [v0.3.5 실행 ZIP 다운로드](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.5/ArubaClientLiveTracker_v0.3.5_windows_x64.zip) · [체크섬 및 대응 소스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.5). 게시 여부와 실제 다운로드 검증 결과는 [검증 기록](docs/BUILD_VALIDATION_KO.md)을 확인하십시오.
 
-1. 게시된 `ArubaClientLiveTracker_v0.3.4_windows_x64.zip`과 `.sha256`을 받아 해시를 비교합니다.
+1. 게시된 `ArubaClientLiveTracker_v0.3.5_windows_x64.zip`과 `.sha256`을 받아 해시를 비교합니다.
 2. ZIP 전체를 사용자 폴더에 풀고 `ArubaClientLiveTracker/ArubaClientLiveTracker.exe`를 실행합니다. Python 설치와 관리자 권한은 필요하지 않습니다.
 3. 데모 모드에서 단일 추적과 다중 모니터링을 확인합니다.
 4. 실제 연결은 전체 추적을 중지한 뒤 간편 설정에서 MM 이름/IP와 공통 SSH 계정을 입력합니다. 발견 목록에서 검사할 장비를 선택하고 역할·관리 주소·MD 매핑을 검토한 뒤 저장합니다. 기존 수동 설정도 유지됩니다.
@@ -51,7 +51,7 @@ python -m aruba_client_live_tracker.main --demo
 python -m aruba_client_live_tracker.main --multi-demo
 python -m pytest -q
 python -m ruff check src tests scripts
-pwsh -File build_windows.ps1 -Version 0.3.4
+pwsh -File build_windows.ps1 -Version 0.3.5
 ```
 
 GitHub Actions는 Ubuntu/Windows 자동 검사와 Windows 네이티브 PyInstaller onedir 빌드, 실제 EXE의 단일/10대 GUI 스모크를 수행하도록 구성되어 있습니다. 실행 성공 여부는 해당 Actions 결과와 [검증 기록](docs/BUILD_VALIDATION_KO.md)을 확인하십시오. pytest JUnit XML과 스모크 JSON을 아티팩트로 보존합니다. Linux CI는 Qt offscreen을 사용합니다. Windows EXE는 Windows에서 빌드합니다.

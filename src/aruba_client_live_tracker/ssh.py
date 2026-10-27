@@ -40,7 +40,16 @@ _MAX_PAGES = 200
 _KEYS_LOCK = threading.RLock()
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _PROMPT = re.compile(r"^(?:\([^\r\n]{1,80}\)\s*)?[\^*]{0,2}\s*(?:\[[^\r\n]{1,80}\]\s*)?[A-Za-z0-9._:*^ -]{0,80}[#>]$")
-_PAGING = re.compile(r"--\s*More\s*--|Press (?:any key|<space>|space) to continue", re.I)
+# AOS 8.10 CLI Reference pp. 1629/3361 includes the entire menu after
+# --More--. Its help text must never become a row in a collected CLI table.
+_PAGING = re.compile(
+    r"--[ \t]*More[ \t]*--(?:[ \t]+\(q\)[ \t]+quit[ \t]+\(u\)[ \t]+pageup"
+    r"[ \t]+\(/\)[ \t]+search[ \t]+\(n\)[ \t]+repeat)?"
+    r"|Press (?:any key|<space>|space) to continue", re.I)
+# Consume only a pager's adjacent erase sequence, before discarding CR/BS.
+# Otherwise erase padding can shift the next row when it overwrites the pager.
+# Keep the next data row's indentation; do not trim arbitrary surrounding space.
+_PAGING_OUTPUT = re.compile(r"(?:" + _PAGING.pattern + r")(?:\x08+ +\x08+|\r +\r|\x08+)?", re.I)
 
 
 class SSHError(RuntimeError):
@@ -314,10 +323,10 @@ class SSHSession:
                 if len(data) > MAX_OUTPUT_BYTES:
                     raise SSHError("OUTPUT_LIMIT", "SSH 출력량 제한을 초과했습니다. 필터와 CLI 형식을 확인하십시오.")
                 stable_since = None
-            text = _ANSI.sub("", data.decode("utf-8", errors="replace")).replace("\r", "")
+            terminal_text = _ANSI.sub("", data.decode("utf-8", errors="replace"))
             # CLI pagination may erase its marker with backspaces. Do not erase
             # raw observation bytes; only clean these terminal controls locally.
-            text = text.replace("\x08", "")
+            text = terminal_text.replace("\r", "").replace("\x08", "")
             matches = list(_PAGING.finditer(text[-200:]))
             if matches:
                 offset = max(0, len(text) - 200) + matches[-1].start()
@@ -335,8 +344,8 @@ class SSHSession:
                 elif time.monotonic() - stable_since >= 0.08:
                     if initial:
                         self._prompt = last
-                    body = text.rstrip().rsplit("\n", 1)[0] if "\n" in text.rstrip() else ""
-                    return _PAGING.sub("", body)
+                    body = terminal_text.rstrip().rsplit("\n", 1)[0] if "\n" in terminal_text.rstrip() else ""
+                    return _PAGING_OUTPUT.sub("", body).replace("\r", "").replace("\x08", "")
             time.sleep(0.01)
 
     def run(self, command: str, cancel: threading.Event | None = None,

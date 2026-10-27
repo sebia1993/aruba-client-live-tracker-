@@ -14,6 +14,8 @@ from aruba_client_live_tracker.collector import LiveCollector
 from aruba_client_live_tracker.commands import parse_target
 from aruba_client_live_tracker.models import Credentials, Device, Outcome
 
+_FULL_PAGER = "--More-- (q) quit (u) pageup (/) search (n) repeat"
+
 
 class _ServerInterface(paramiko.ServerInterface):
     def __init__(self, server):
@@ -43,6 +45,8 @@ class _LabSSH:
         self.role = role
         self.split_switches = False
         self.switches_output = None
+        self.command_pages = {}
+        self.page_keys = []
         self.identity_ip = None
         self.key = paramiko.RSAKey.generate(2048)
         self.allow_auth = True
@@ -106,12 +110,40 @@ class _LabSSH:
                     line, pending = pending.split(b"\n", 1)
                     command = line.decode().strip()
                     self.commands.append(command)
-                    channel.sendall(command + "\r\n" + self.reply(command).replace("\n", "\r\n") + "\r\n" + prompt)
+                    if not self._send_reply(channel, command, prompt):
+                        return
         except (EOFError, OSError, paramiko.SSHException):
             # Key/auth rejection deliberately closes the connection mid-handshake.
             pass
         finally:
             transport.close()
+
+    def _send_reply(self, channel, command, prompt):
+        pages = self.command_pages.get(command)
+        if pages is None:
+            channel.sendall(command + "\r\n" + self.reply(command).replace("\n", "\r\n") + "\r\n" + prompt)
+            return True
+        channel.sendall(command + "\r\n")
+        for page in pages[:-1]:
+            channel.sendall(page.replace("\n", "\r\n") + "\r\n" + _FULL_PAGER)
+            # The next page and final prompt are withheld until the actual SSH
+            # client sends space. Cancellation/disconnect must release this
+            # synthetic server; a broken paging implementation cannot hang it.
+            deadline = time.monotonic() + 5
+            while not self.closed.is_set() and not channel.closed and time.monotonic() < deadline:
+                try:
+                    key = channel.recv(4096)
+                except socket.timeout:
+                    continue
+                self.page_keys.append(key)
+                if key != b" ":
+                    return False
+                break
+            else:
+                return False
+            channel.sendall("\r\n")
+        channel.sendall(pages[-1].replace("\n", "\r\n") + "\r\n" + prompt)
+        return True
 
     def reply(self, command):
         switch_ip = self.identity_ip or ("192.0.2.10" if self.role == "MM" else "192.0.2.20")
@@ -223,6 +255,92 @@ def test_real_ssh_mm_discovery_and_selected_management_address_probe(lab, tmp_pa
         assert "192.0.2.20" in resolved.mappings
         assert not any(command.startswith("show user-table") for command in md.commands)
         assert "show switches" not in md.commands  # Selection probe does not recursively scan topology.
+    finally:
+        service.close()
+
+
+def _switch_pages(split=False, invalid=""):
+    # HPE's full pager text is documented in the AOS 8.10 CLI Reference,
+    # pp. 1629 and 3361. All device rows and paging positions are synthetic.
+    headers = ["IP Address", "IPv6 Address", "Name", "Type", "Model", "Version"]
+    rows = [
+        ["192.0.2.10", "None", "LAB-MM", "conductor", "ArubaMM-HW-10K", "8.10.0.0"],
+        ["192.0.2.11", "None", "LAB-STANDBY", "standby", "ArubaMM-HW-10K", "8.10.0.0"],
+        ["192.0.2.20", "None", "LAB-MD", "MD", "Aruba7240XM", "8.10.0.0"],
+        ["192.0.2.21", "None", "LAB-MD-B", "MD", "Aruba7240XM", "8.10.0.0"],
+        ["192.0.2.22", "None", "LAB-MD-C", "MD", "Aruba7240XM", "8.10.0.0"],
+        ["192.0.2.23", "None", "LAB-MD-D", "MD", "Aruba7240XM", "8.10.0.0"],
+    ]
+    if invalid == "address":
+        rows[-1][0] = "invalid-ip"
+    footer = "Total Switches:7" if invalid == "count" else "Total Switches:{count}"
+    if split:
+        output = table(headers, rows, "") + "\n" + table(
+            ["Status", "Configuration State", "Config Sync Time (sec)", "Config ID"],
+            [["up", "UPDATE SUCCESSFUL", "0", "7"] for _ in rows], footer)
+    else:
+        output = table(headers, rows, footer)
+    lines = ("All Switches\n------------\n" + output).splitlines()
+    # The first pager becomes output line 9. A horizontal table also pauses
+    # once in its status block, exercising more than one continuation request.
+    if split:
+        return ["\n".join(lines[:8]), "\n".join(lines[8:16]), "\n".join(lines[16:])]
+    return ["\n".join(lines[:8]), "\n".join(lines[8:])]
+
+
+@pytest.mark.parametrize("split", [False, True])
+def test_real_ssh_full_pager_discovers_all_switches_before_selected_probe(lab, tmp_path, monkeypatch, split):
+    from aruba_client_live_tracker.discovery import DiscoveryService
+
+    mm, md = lab("MM"), lab("MD")
+    mm.command_pages["show switches"] = _switch_pages(split)
+    getaddrinfo = socket.getaddrinfo
+    endpoints = []
+    def loopback_only(host, port, *args, **kwargs):
+        endpoints.append((host, port))
+        assert host == "127.0.0.1" and port in (mm.port, md.port)
+        return getaddrinfo(host, port, *args, **kwargs)
+    monkeypatch.setattr(socket, "getaddrinfo", loopback_only)
+
+    service = DiscoveryService(Credentials("synthetic", "synthetic-secret"), tmp_path / "known_hosts")
+    try:
+        found = service.discover(Device("입력한 MM", "127.0.0.1", "AUTO", mm.port))
+        assert not found.diagnostics
+        assert len(found.devices) == 6
+        assert [device.kind for device in found.devices] == ["MM_PRIMARY", "MM_STANDBY", "MD", "MD", "MD", "MD"]
+        candidate = next(device for device in found.devices if device.host == "192.0.2.20")
+        assert candidate.mappings == ("192.0.2.20", "LAB-MD")
+        assert mm.page_keys == [b" "] * (2 if split else 1)
+        assert endpoints == [("127.0.0.1", mm.port)]
+        assert md.auth_attempts == 0
+        checked = service.probe([replace(candidate, host="127.0.0.1", port=md.port)])
+        assert not checked.diagnostics
+        assert len(checked.devices) == 1
+        assert checked.devices[0].kind == "MD"
+        assert checked.devices[0].mappings == ("192.0.2.20", "LAB-MD")
+        assert endpoints == [("127.0.0.1", mm.port), ("127.0.0.1", md.port)]
+        assert mm.commands == ["show switches", "show switchinfo", "show version"]
+        assert md.commands == ["show switchinfo", "show version"]
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("invalid,reason", [("address", "IP 형식"), ("count", "완료 건수")])
+def test_real_ssh_full_pager_does_not_hide_invalid_switch_table(lab, tmp_path, invalid, reason):
+    from aruba_client_live_tracker.discovery import DiscoveryService
+
+    mm = lab("MM")
+    mm.command_pages["show switches"] = _switch_pages(invalid=invalid)
+    service = DiscoveryService(Credentials("synthetic", "synthetic-secret"), tmp_path / "known_hosts")
+    try:
+        found = service.discover(Device("입력한 MM", "127.0.0.1", "AUTO", mm.port))
+        assert len(found.devices) == 1  # Retain only the explicitly supplied seed.
+        errors = [item for item in found.diagnostics if item.code == "SWITCH_TABLE_PARSE_FAILED"]
+        assert len(errors) == 1 and reason in errors[0].message
+        if invalid == "address":
+            assert "IP 열 길이 10" in errors[0].message
+        assert mm.page_keys == [b" "]
+        assert mm.commands == ["show switches", "show switchinfo", "show version"]
     finally:
         service.close()
 

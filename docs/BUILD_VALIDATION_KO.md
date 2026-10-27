@@ -1,44 +1,25 @@
-# v0.3.4 빌드와 검증 기록
+# v0.3.5 빌드와 검증 기록
 
-기록일: 2026-10-27. 사용자는 MM 장비 찾기/선택 장비 검사 화면에서 IP 형식 관련 `SWITCH_TABLE_PARSE_FAILED`를 보고했고 원문 공유 대신 HPE 공식 문서 확인을 요청했습니다. 실제 주소·장비 원문·계정은 수집하지 않았습니다.
+기록일: 2026-10-27. 사용자는 v0.3.4에서도 `SWITCH_TABLE_PARSE_FAILED`와 출력 9행·IP 열 12자·IPv6 열 14자 진단을 보고했습니다. 운영망 원문·주소·계정은 수집하지 않았습니다.
 
-## 확인한 사실과 수정 범위
+## 원인 재현과 수정 범위
 
-공식 ArubaOS 8.10 User Guide 861쪽은 `show switches`의 `IP Address=None`·유효 IPv6 행을 보여 줍니다. 이전 파서가 이 값에서 동일한 IP 오류를 발생시키는 것을 재현했습니다. IPv4가 명시적으로 None일 때만 유효 IPv6를 사용하고, IPv4가 있으면 기존 우선순위를 유지합니다. 잘못된 주소, 중복 IP, 행 누락과 잘못된 완료 건수는 계속 거부합니다. IPv6의 확장/압축 표기 차이는 담당 MD 매핑에서 같은 주소로 비교하며 중복 매핑은 거부합니다. 장비 SSH 관리 주소 지원이며 단말 검색은 기존 IPv4/MAC 범위입니다.
+공식 ArubaOS 8.10 CLI Reference 물리 1629·3361쪽에 전체 페이지 안내 `--More-- (q) quit (u) pageup (/) search (n) repeat`가 있습니다. 기존 SSH 코드는 `--More--`만 제거하여 남은 `(q) quit (u)` 12자와 `pageup (/) sea` 14자가 주소 셀로 전달됐습니다. 정상 가상 장비 6대 표에 이 안내문을 넣고 실제 루프백 SSH로 수집하여 사용자가 보고한 9행/12/14 오류를 정확히 재현했습니다. 삽입 위치 9행은 재현을 위해 지정한 것이며 사용자 원문을 확인했다는 뜻이 아닙니다.
 
-선택 장비 검사는 `show switchinfo`/`show version`만 실행합니다. 이 단계 뒤에 남아 있는 MM 목록 조회 오류를 새 검사 실패로 오해하지 않도록 현재/이전 작업과 검사 회차를 나눴습니다. 이전 MM 오류는 그대로 보존하고 현재 안내에도 남아 있음을 표시합니다. 파싱 실패는 원문 대신 출력 행 번호와 IP 열 길이를 안내합니다.
+SSH 계층에서 전체 안내문과 바로 뒤의 알려진 지우기 제어를 제거한 후 기존 파서에 전달합니다. 실제 다음 행의 들여쓰기는 유지합니다. 주소 파서를 완화하거나 잘못된 행을 건너뛰지 않으며 새 명령·장비 설정 변경도 없습니다. 한 페이지당 스페이스만 보내고 기존 출력량·페이지 수·시간·취소 제한은 유지합니다.
 
-공식 CLI Bank의 기존 단일/분리 표는 종전 파서에서도 통과했습니다. 추가 공백·열 폭 문제는 확인되지 않았습니다. 공식 문서에서 지원 누락을 확인한 것이며 사용자의 실제 원인이 IPv6라고 확정한 것이 아닙니다. 모델명으로 역할을 추측하거나 무필터/추가 발견 명령을 실행하지 않습니다.
+## 자동 검증 범위
 
-## 검증 상태
+수정 전 새 SSH 전송 회귀 10건과 실제 SSH 통합 4건이 실패했고, 수정 후 통과했습니다. 전체/짧은 페이지 안내, TCP 경계별 분할, ANSI, CR·백스페이스 지우기, 같은 줄에 덮어쓴 다음 행, 들여쓰기, 여러 페이지와 일반 데이터 보존을 검사합니다. 실제 루프백 SSH 서버는 스페이스를 받기 전 다음 페이지를 보내지 않습니다. 일반/분리 표 6대 발견과 선택 WLC 검사, 페이지 이후 실제 잘못된 IP/행 수 불일치의 계속 차단을 확인합니다.
 
-공식 구조를 참고한 RFC 5737/RFC 3849 가상 자료를 사용합니다. 문서의 IPv6 예시는 일부 행을 생략하여 Total Switches와 표시 행 수가 다르므로 완전한 응답 fixture로 복제하지 않았습니다. 새 단일/분리 표 TCP loopback SSH 회귀는 이전 파서에서 2건 실패, 수정 파서에서 통과했습니다. 실제 IPv6 네트워크 접속을 검증했다는 뜻은 아닙니다. GUI 회귀는 이전 발견 오류·현재 성공/실패·반복 검사를 확인합니다.
+로컬 전체 368개 테스트(31.60초), Ruff, 저장소 보안 검사와 독립 리뷰를 통과했습니다. 독립 리뷰는 전체 안내문의 51개 분할 경계에서 두 페이지와 다음 행 들여쓰기를 보존하고 페이지마다 스페이스만 보내는 것도 확인했습니다. 소스 GUI 단일 5회·10대 각 5회 수집과 SQLite 저장·정상 종료를 확인했고, 고정 의존성 25개의 공개 공지에서 영향 패키지는 0개였습니다. Windows CI·네이티브 EXE·공개 다운로드 검증 결과는 실행 후 이 문서에 기록합니다. [v0.3.4 검증 기록](validation/v0.3.4/BUILD_VALIDATION_KO.md)은 별도로 보존합니다.
 
-로컬 전체 351개 테스트(25.28초), Ruff, 보안 검사와 독립 리뷰를 통과했습니다. 소스 GUI는 단일 5회·10대 각 5회 수집과 SQLite 저장·정상 종료를 확인했습니다. 고정 의존성 25개의 공개 공지에서 영향 패키지는 0개였습니다. Windows CI와 EXE 검사도 통과했습니다. 공개 릴리스 ZIP을 실제 다운로드하여 체크섬과 구성을 검증했습니다. 이전 증거는 [v0.3.3 기록](validation/v0.3.3/BUILD_VALIDATION_KO.md)에 보존하며 이번 버전의 증거로 대체하지 않습니다.
+## 공식 근거와 제한
 
-## Windows CI 결과
+2026-10-27 다음 공식 문서를 확인했습니다.
 
-커밋 `2ffab2fc982d02d2ae1b60ade604002693230a5e`의 [CI 40446346316](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446346316)는 Ubuntu와 Windows 모두 성공했습니다. Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0에서 초기 351개(48.37초), 빌드 재검사 351개(47.39초)가 통과했습니다. Ubuntu도 351개(24.24초)가 통과했으며 모든 JUnit의 실패·오류·건너뛰기는 0입니다.
+- [ArubaOS 8.10 CLI Reference](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/810/ArubaOS-8.x-CLI-Reference-Guide.pdf): 물리 1629·3361쪽 전체 페이지 안내.
+- [show ap arm status](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-ap-arm-status.htm), [show snmp trap-list](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-snmp-trap-lst.htm): 같은 안내문을 보여 주는 공식 HTML. 두 명령을 앱에서 새로 실행한다는 뜻이 아닙니다.
+- [paging](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/paging.htm): 기본 활성화와 세션별 적용. 큰 터미널 크기를 요청해도 페이지 안내가 없다고 가정하지 않습니다.
 
-실제 EXE 단일 데모는 1대 5회, 다중 데모는 10대 각 5회(총 50회), 독립 MAC 10개와 SQLite 저장·정상 종료를 확인했습니다. 두 운영체제의 소스 데모도 동일한 범위를 통과했습니다. [CI 검증 JSON](validation/v0.3.4/ci-verification.json)에 실제 아티팩트와 로그를 대조한 결과를 보존합니다. 같은 커밋에 v0.3.4 태그를 게시했습니다. 앞선 문서 갱신 전 커밋의 두 CI는 중복 실행을 취소했고 위 최종 커밋의 결과를 사용합니다.
-
-## 공개 릴리스와 다운로드 검증
-
-동일 커밋의 `v0.3.4` 태그에서 [Release 40446692668](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446692668)가 351개(48.61초), Ruff, 실제 EXE 단일/10대 검사를 통과하고 [공개 릴리스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.4)를 게시했습니다. JUnit의 실패·오류·건너뛰기는 0입니다. 릴리스 검증 아티팩트의 SHA-256과 ZIP CRC도 확인했습니다.
-
-| 파일 | 바이트 | SHA-256 |
-|---|---:|---|
-| `ArubaClientLiveTracker_v0.3.4_windows_x64.zip` | 43,361,869 | `621f9048232dc216b5a3293686e7f974c63bbddbfcbfad9816df95e6e5e47563` |
-| `ArubaClientLiveTracker_v0.3.4_third_party_sources.zip` | 72,212,226 | `47299f6953eb9825859f4ab2e97a56018c1ae3596d3bcd7cb6b1c286a321dea5` |
-
-실제 공개 다운로드를 사용한 [검증 JSON](validation/v0.3.4/release-verification.json)은 ZIP CRC, AMD64 PE32+ Windows GUI EXE, 일반 사용자 asInvoker, Qt 한국어 번역, 라이선스 10개, 대응 소스 6개와 고정 해시, 실행 소스 18개 일치(개행 정규화), 새 회귀 검사를 포함한 필수 소스 31개, 351개 JUnit 및 단일/10대 실행 증거를 확인합니다. ZIP 멤버 719개의 이름·제한된 텍스트 패턴 검사에서 금지된 로컬 설정/DB/운영 로그 파일은 0개였습니다. 모든 종류의 비밀정보 부재를 증명하는 검사는 아니며 실제 운영 자료를 사용하지 않았습니다.
-
-태그 이후 저장소 변경은 검증 결과와 문서뿐이며 실행 코드·의존성은 동일합니다. 기존 프로그램을 종료하고 새 ZIP을 별도 폴더에 전체 압축 해제해 실행합니다. 실제 MM에서 보고된 문제가 해결됐는지는 아직 확인하지 않았습니다.
-
-## 공식 근거와 한계
-
-- [ArubaOS 8.10 User Guide](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/810/ArubaOS-8%2E10%2E0%2E0-User-Guide.pdf): 861쪽 Viewing peer controller details, IPv4 부재/IPv6 장비 행.
-- [HPE show switches](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-switches.htm): 단일/분리 표 출력과 명령 설명.
-- [해당 패치 릴리스 노트](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/Release-Notes/810/ArubaOS-8%2E10%2E0%2E10-Release-Notes.pdf): 이 앱의 파싱 오류를 장비 결함으로 단정할 근거는 확인하지 못했습니다.
-
-ArubaMM-HW-10K, Aruba7240XM/7210의 실제 연결·발견·추적, Windows 11 실기와 고배율 검증은 사용자 확인 대상입니다. 실행 파일은 코드 서명되지 않았습니다.
+공식 문서는 안내문을 입증합니다. CR·백스페이스·화면 지우기 바이트와 TCP 분할은 합성 전송 시험이며 실장비 캡처가 아닙니다. 실제 ArubaMM-HW-10K·ArubaOS 8.10 환경에서의 해결과 Windows 11 실기/고배율은 사용자 검증 대상입니다. 실행 파일은 코드 서명되지 않았습니다.

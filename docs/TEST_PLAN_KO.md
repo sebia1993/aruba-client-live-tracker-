@@ -7,7 +7,7 @@ python -m pytest -q --junitxml=artifacts/pytest-local.xml
 python -m ruff check src tests scripts
 python -m aruba_client_live_tracker.main --demo --smoke-test --data-dir smoke-single --smoke-result artifacts/source-single-smoke.json
 python -m aruba_client_live_tracker.main --multi-demo --smoke-test --data-dir smoke-multi --smoke-result artifacts/source-multi-smoke.json
-pwsh -File build_windows.ps1 -Version 0.3.4
+pwsh -File build_windows.ps1 -Version 0.3.5
 ```
 
 테스트는 운영망에 연결하지 않고 합성 CLI·가짜 SSH·데모를 사용합니다. 실행 결과와 개수는 [검증 기록](BUILD_VALIDATION_KO.md)에 기록하며 아래 표는 요구되는 검증 범위입니다.
@@ -19,6 +19,7 @@ pwsh -File build_windows.ps1 -Version 0.3.4
 | 작업 격리 | 중지/제거/재시작 뒤 늦은 결과 폐기·취소/세대·DB/워커 오류 표시 |
 | 스케줄링 | 실제 동시 제출 2개 이하·완료+주기·공정 순환·새로고침 중복 방지 |
 | 공유 SSH | 같은 장비 명령 직렬·전체 연결 12개 이하·15초 재시도 대기·소유별 정리 |
+| SSH 페이지 처리 | 공식 전체/짧은 안내·TCP 분할·페이지당 스페이스·여러 페이지·CR/백스페이스 지우기·다음 행 들여쓰기 보존·안내와 유사한 일반 데이터 보존 |
 | 서버 키 TOFU | 최초 질문/opt-in 없이 저장·기존 키 재사용·키/알고리즘 변경 인증 전 차단·저장 실패·다른 MM 우회 없음 |
 | 신뢰 파일 동시성 | Windows/POSIX 프로세스 간 잠금·동시 새 키 보존·잠금 대기 중 취소/기한·원자적 저장 |
 | 장비 발견 | 고정 allowlist·합성 switches/version/switchinfo·단일/분리 표·IPv4 부재/IPv6 행·행 수/중복 검증·seed 기본 선택·선택 장비만 검사·최대 2개·중지/종료 |

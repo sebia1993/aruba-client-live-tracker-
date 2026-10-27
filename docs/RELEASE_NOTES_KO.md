@@ -1,24 +1,14 @@
-Aruba Client Live Tracker v0.3.4
+Aruba Client Live Tracker v0.3.5
 
-공식 ArubaOS 8.10 User Guide 861쪽에 있는 show switches의 IP Address=None·유효 IPv6 장비 행을 지원합니다. IPv4가 있으면 기존 우선순위를 유지하며, 잘못된 주소·중복 IP·불완전한 표는 계속 거부합니다. IPv6의 확장/압축 표기를 같은 담당 MD 주소로 비교하고 중복 매핑은 차단합니다.
+Aruba의 전체 페이지 넘김 안내를 장비 행으로 오인하던 SSH 응답 정리 문제를 수정했습니다. 기존 코드는 --More--만 지워 뒤의 (q) quit (u) pageup (/) search (n) repeat가 남았습니다. 공식 문서의 안내문과 가상 장비 자료를 실제 루프백 SSH로 수집하여 보고된 출력 9행·IP 열 12자·IPv6 열 14자 오류를 정확히 재현했습니다.
 
-MM 목록 조회와 선택 장비 검사 결과를 현재/이전 작업으로 나눠 표시합니다. 이전 MM 오류를 숨기지 않으며, 새 검사 완료가 목록 조회 복구를 뜻하지 않음을 안내합니다. IP 파싱 오류에는 실제 셀 값 대신 출력 행 번호와 열 길이를 표시합니다.
+전체 안내문과 인접한 화면 지우기 제어를 제거하고 실제 데이터 행과 들여쓰기를 보존합니다. 여러 페이지와 TCP 분할 수신을 지원하며 페이지당 스페이스만 전송합니다. 주소·역할·행 수 검증, 출력량/페이지 수/시간 제한, 최초 키 자동 저장·변경 키 차단과 단일/최대 10대 추적은 유지합니다. 장비 설정 변경이나 추가 명령은 없습니다.
 
-문서의 지원 누락을 재현해 수정했지만 사용자 장비의 실제 출력과 장애 원인은 확인되지 않았습니다. 모델명만으로 역할을 추측하거나 확인되지 않은 명령을 추가하지 않았습니다. 최초 서버 키 자동 저장·변경 키 차단, 단일/최대 10대 추적, 기존 설정과 SQLite 이력은 유지합니다.
+Windows x64 ZIP 전체를 새 폴더에 압축 해제한 뒤 ArubaClientLiveTracker/ArubaClientLiveTracker.exe를 실행하십시오. 기존 프로그램은 먼저 종료합니다. Python 설치와 관리자 권한은 필요하지 않으며 코드 서명되지 않았습니다. 체크섬과 LGPL 대응 소스 ZIP을 함께 제공합니다. GitHub의 자동 Source code ZIP은 실행 배포가 아닙니다.
 
-Windows x64 실행 ZIP 전체를 새 폴더에 압축 해제한 뒤 ArubaClientLiveTracker/ArubaClientLiveTracker.exe를 실행하십시오. 기존 프로그램은 먼저 종료합니다. Python 설치와 관리자 권한은 필요하지 않으며 코드 서명되지 않았습니다. 체크섬 및 LGPL 대응 소스 ZIP을 함께 제공합니다. GitHub의 자동 Source code ZIP은 실행 배포가 아닙니다.
-
-자동 검증 완료: Linux·Windows·태그 빌드에서 351개 테스트, 합성 IPv4/IPv6 단일·분리 표의 TCP loopback SSH, 선택 WLC 검사, GUI 작업 이력, 읽기 전용 명령/키 검증/보안 회귀. Windows Server 2025 x64에서 EXE를 빌드하고 단일 5회·10대 각 5회(총 50회) 관측·SQLite 저장·정상 종료를 확인했습니다. 게시 ZIP을 실제 다운로드하여 SHA-256·CRC·Windows x64 GUI EXE·한국어 번역·라이선스·대응 소스·실행 코드 일치도 검증했습니다.
-
-CI: https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446346316
-Release: https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40446692668
-
-Windows ZIP SHA-256: `621f9048232dc216b5a3293686e7f974c63bbddbfcbfad9816df95e6e5e47563`
-
-다운로드 검증 JSON: https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.4/release-verification.json
+검증 범위: 368개 테스트, SSH 페이지 처리 회귀, 실제 루프백 SSH의 일반/분리 표 6대 발견·선택 WLC 검사, 잘못된 IP와 행 수 불일치 차단, 기존 보안·파서·GUI·단일/다중 추적. Windows 빌드에서 테스트·Ruff·EXE의 단일 및 10대 데모·SQLite 저장·정상 종료를 검사합니다. 실제 결과와 공개 다운로드 검증 증거는 아래 기록을 확인하십시오.
 
 검증 기록: https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/BUILD_VALIDATION_KO.md
+공식 페이지 안내: https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-snmp-trap-lst.htm
 
-실제 ArubaMM-HW-10K, Aruba7240XM/7210 접속·발견·추적과 Windows 11 실기/고배율 검증은 사용자 확인 대상입니다. 자동 검사는 가상 자료와 loopback SSH, Qt offscreen이며 실제 IPv6 네트워크나 운영망 검증을 대체하지 않습니다.
-
-저장소: https://github.com/sebia1993/aruba-client-live-tracker-
+공식 안내문을 확인했으며 CR/백스페이스/분할 전송은 합성 시험입니다. 실제 Aruba 장비에서의 오류 해소와 Windows 11 실기/고배율 검증은 사용자 확인 대상입니다.
