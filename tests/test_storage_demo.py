@@ -348,7 +348,7 @@ def test_combined_reports_order_events_with_observations_and_preserve_identity(t
         assert "seen" in rows[1]["관측 사실"]
         assert "이전 조회값" in rows[2]["SNR (dB)"]
         assert early in rows[2]["수집 근거/항목별 관측 시각"]
-        report = store.export_many_html([first, second], tmp_path / "combined.html").read_text()
+        report = store.export_many_html([first, second], tmp_path / "combined.html").read_text(encoding="utf-8")
         assert "<script>" not in report
         assert "&lt;script&gt;" in report
         headers = [html.unescape(value) for value in re.findall(r"<th>(.*?)</th>", report)]

@@ -8,7 +8,7 @@
 |---|---|
 | 버전 | pyproject·패키지·Windows 빌드 기본값 0.2.0 |
 | 공개 원격 | `https://github.com/sebia1993/aruba-client-live-tracker-.git` (저장소 이름 끝 하이픈 포함) |
-| v0.2.0 자동 테스트·정적 검사 | Linux Python 3.12: **177 passed (15.74s)**, Ruff 통과 |
+| v0.2.0 자동 테스트·정적 검사 | Linux Python 3.12: **178 passed (16.07s)**, Ruff 통과 |
 | 고정 의존성 공지 | PyPI 25개 고정 패키지: 알려진 영향 공지 0건; 내장 네이티브 라이브러리 전체 감사는 아님 |
 | 10대 GUI·스크린샷 | 단일 1대/5건, 다중 10대/50건; 125%·150% offscreen 스모크 통과, 실제 스크린샷 저장 |
 | Windows Actions 빌드·단일/10대 EXE | 실행 결과 기록 대기 |
@@ -34,3 +34,7 @@ Qt offscreen은 실제 창 생성·수집·SQLite·정상 종료를 확인하지
 ## v0.1.0 과거 기록
 
 기존 증거는 [validation/v0.1.0](validation/v0.1.0/BUILD_VALIDATION_KO.md)에 보관합니다. Linux/Windows Python 121건, Wine frozen 단일 데모, 배율 스모크, 당시 저장소 생성 오류는 모두 과거 버전의 기록입니다. 현재 원격 저장소는 존재하며 당시의 생성 실패를 현재 상태로 안내하지 않습니다.
+
+## CI 초기 실행에서 수정한 문제
+
+[첫 CI](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40430054152)는 Ubuntu의 Qt 런타임 `libEGL.so.1` 누락과 Windows 빌드 검사 콘솔의 CP1252 한국어 출력 오류로 실패했다. Linux 런타임 설치 단계를 추가하고 빌드 검사 출력 및 테스트 파일 읽기에 UTF-8을 명시했다. Windows 콘솔 오류를 오프라인 회귀 테스트로 재현한 뒤 수정했으며, 실패 결과를 숨기거나 테스트를 건너뛰지 않았다.

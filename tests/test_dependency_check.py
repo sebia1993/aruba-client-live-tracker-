@@ -28,3 +28,21 @@ def test_advisories_are_not_silently_ignored():
     assert rows[0]['vulnerabilities'][0]['id'] == 'EXAMPLE-ADVISORY'
     with pytest.raises(OSError):
         checker.audit([('example','1.0')], fetch=lambda *_: (_ for _ in ()).throw(OSError('offline')))
+
+
+def test_audit_cli_prints_korean_on_windows_legacy_stdout(tmp_path, monkeypatch):
+    import io
+    import sys
+    checker = module()
+    pins = tmp_path / "pins.txt"
+    pins.write_text("example==1.0\n", encoding="utf-8")
+    output = tmp_path / "audit.json"
+    monkeypatch.setattr(checker, "audit", lambda pins: [])
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--requirements", str(pins), "--output", str(output)])
+    stream = io.BytesIO()
+    console = io.TextIOWrapper(stream, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", console)
+    assert checker.main() == 0
+    console.flush()
+    assert "의존성 0개 검사" in stream.getvalue().decode("utf-8")
+    assert '"application_version"' in output.read_text(encoding="utf-8")

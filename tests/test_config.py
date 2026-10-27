@@ -11,7 +11,7 @@ def test_settings_roundtrip_no_credentials(tmp_path):
     devices = [Device('실습 MM', '192.0.2.10', 'MM_PRIMARY'), Device('실습 MD', '192.0.2.20', mappings=('192.0.2.21', 'LAB-MD'))]
     save_devices(path, devices)
     assert load_devices(path) == devices
-    assert 'password' not in path.read_text()
+    assert 'password' not in path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize('device', [Device('x','host;reboot'), Device('x','192.0.2.1',port=0), Device('x','192.0.2.1',kind='bad'), Device('x','192.0.2.1',mappings=('bad\nshow x',))])

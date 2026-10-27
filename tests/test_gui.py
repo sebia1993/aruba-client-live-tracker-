@@ -254,8 +254,8 @@ def test_multi_demo_cli_smoke_verifies_every_target(tmp_path):
     process = subprocess.run([sys.executable, '-m', 'aruba_client_live_tracker.main', '--multi-demo',
                               '--smoke-test', '--smoke-result', str(result_path)],
                              cwd=project, env=env, capture_output=True, text=True, timeout=35)
-    assert process.returncode == 0, process.stdout + process.stderr + result_path.read_text()
-    result = json.loads(result_path.read_text())
+    assert process.returncode == 0, process.stdout + process.stderr + result_path.read_text(encoding="utf-8")
+    result = json.loads(result_path.read_text(encoding="utf-8"))
     assert result['success'] and result['target_count'] == 10
     assert result['independent_macs'] == 10
     assert len(result['target_observations']) == 10

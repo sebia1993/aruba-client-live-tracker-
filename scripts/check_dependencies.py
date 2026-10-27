@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import tomllib
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +50,9 @@ def audit(pins: list[tuple[str, str]], fetch=fetch_pypi) -> list[dict]:
 
 
 def main() -> int:
+    # Redirected Windows build output otherwise uses the legacy ANSI code page.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description='빌드 의존성 공개 보안 공지 검사')
     parser.add_argument('--requirements', type=Path, default=Path('requirements-dev.txt'))
     parser.add_argument('--output', type=Path, default=Path('artifacts/dependency-advisories.json'))
