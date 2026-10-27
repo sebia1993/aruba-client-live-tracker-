@@ -6,7 +6,11 @@ MM 이름/IP와 공통 SSH 계정으로 장비 목록을 발견하고 선택한 
 
 Windows x64 실행 ZIP 전체를 압축 해제한 뒤 ArubaClientLiveTracker/ArubaClientLiveTracker.exe를 실행하십시오. Python 설치와 관리자 권한은 필요하지 않습니다. 먼저 데모로 확인하고 제공된 SHA-256을 비교하십시오. 코드 서명되지 않았습니다. LGPL 대응 소스 ZIP도 함께 보관·재배포합니다. Qt/PySide 6.8.3와 Paramiko 5.0.0 버전 및 정확한 대응 소스 검증을 유지합니다.
 
-검증 상태: Linux 통합 테스트 307개, Ruff, 단일/10대 소스 GUI 스모크를 통과했습니다. Windows 네이티브 빌드·실제 EXE 단일/10대 스모크·공개 다운로드 검증은 진행 중입니다. 최신 결과는 docs/BUILD_VALIDATION_KO.md와 해당 Actions 실행 및 배포 validation JSON/XML을 확인하십시오. 이전 v0.2.0의 178개 통과나 배포 해시를 이 버전의 결과로 사용하지 않습니다. 태그 워크플로는 테스트·빌드·두 EXE 스모크를 통과해야 Release를 게시하도록 구성되어 있습니다.
+검증: Linux·Windows 자동 테스트 307개, Ruff, 단일/10대 소스 GUI 스모크와 Windows 네이티브 EXE 단일/10대 실행 검사가 통과했습니다. Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0으로 빌드했습니다. EXE는 단일 5회, 10대 각 5회(총 50회) 관측·SQLite 저장·정상 종료를 확인했습니다. 고정 의존성 25개의 공개 공지 검사에서 영향 패키지는 0개였습니다.
+
+최종 소스 CI: https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40437725402
+
+태그 빌드는 같은 검사를 다시 수행해야 이 릴리스를 게시합니다. 공개 ZIP의 다운로드·체크섬·구성 검증 결과는 게시 후 이 릴리스와 docs/BUILD_VALIDATION_KO.md에 기록합니다. 검증 증거 JSON/XML은 실행 ZIP의 validation 폴더에도 포함됩니다.
 
 미검증: 실제 ArubaOS 8.10 세부 버전/7240XM/AP-535의 명령과 출력 의미·역할·실장비 부하·장시간 실행·MM 장애 전환·MD 클러스터 로밍, Windows 11 실기와 고배율 화면입니다. Qt offscreen과 Windows CI runner는 실기 검증과 구분합니다.
 
