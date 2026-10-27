@@ -161,8 +161,8 @@ class DiscoveryService:
             try:
                 rows = parse_switches(outputs['show switches'])
             except ParseError as exc:
-                # parse_switches emits fixed Korean reasons, never remote rows
-                # or field values. Keep the diagnostic actionable without raw CLI.
+                # Parser reasons include only fixed text and structural counts,
+                # never remote rows or field values. Do not append raw CLI.
                 diagnostics.append(_diagnostic(seed, 'discovery', 'SWITCH_TABLE_PARSE_FAILED',
                     f'장비 목록을 해석하지 못했습니다. {exc}', 'show switches'))
         # An endpoint match is definitive. Otherwise self identity must select

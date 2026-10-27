@@ -7,7 +7,7 @@ python -m pytest -q --junitxml=artifacts/pytest-local.xml
 python -m ruff check src tests scripts
 python -m aruba_client_live_tracker.main --demo --smoke-test --data-dir smoke-single --smoke-result artifacts/source-single-smoke.json
 python -m aruba_client_live_tracker.main --multi-demo --smoke-test --data-dir smoke-multi --smoke-result artifacts/source-multi-smoke.json
-pwsh -File build_windows.ps1 -Version 0.3.3
+pwsh -File build_windows.ps1 -Version 0.3.4
 ```
 
 테스트는 운영망에 연결하지 않고 합성 CLI·가짜 SSH·데모를 사용합니다. 실행 결과와 개수는 [검증 기록](BUILD_VALIDATION_KO.md)에 기록하며 아래 표는 요구되는 검증 범위입니다.
@@ -21,12 +21,12 @@ pwsh -File build_windows.ps1 -Version 0.3.3
 | 공유 SSH | 같은 장비 명령 직렬·전체 연결 12개 이하·15초 재시도 대기·소유별 정리 |
 | 서버 키 TOFU | 최초 질문/opt-in 없이 저장·기존 키 재사용·키/알고리즘 변경 인증 전 차단·저장 실패·다른 MM 우회 없음 |
 | 신뢰 파일 동시성 | Windows/POSIX 프로세스 간 잠금·동시 새 키 보존·잠금 대기 중 취소/기한·원자적 저장 |
-| 장비 발견 | 고정 allowlist·합성 switches/version/switchinfo·seed 기본 선택·선택 장비만 검사·최대 2개·중지/종료 |
+| 장비 발견 | 고정 allowlist·합성 switches/version/switchinfo·단일/분리 표·IPv4 부재/IPv6 행·행 수/중복 검증·seed 기본 선택·선택 장비만 검사·최대 2개·중지/종료 |
 | 역할/설정 | 명시적 Type 근거·self 식별 모호성·master/local 추정 금지·AUTO 제외·수동 유형/주소/매핑 보존·충돌 |
 | 자격 증명 | 발견/추적 실행 중 재사용·계정 변경/종료 참조 폐기·설정/DB/보고서 미포함 |
 | 진단/마이그레이션 | 단계/코드/장비/명령·오류와 부재 구분·IP Address 헤더·설정 v1 읽기/v2 저장·기존 DB 진단 컬럼 추가 |
 | 보고서 | 대상/세션 구분·기간·시각순·단일 호환·단계별 진단·HTML escape/CSV 수식 방어 |
-| GUI | 실제 창·목록/선택 상세·개별/전체 제어·전환 제한·10대 독립 데이터·종료 정리 |
+| GUI | 실제 창·목록/선택 상세·개별/전체 제어·전환 제한·10대 독립 데이터·이전 MM 발견 오류/현재 검사 결과 구분·종료 정리 |
 | 반복 수집 | 대상별 그래프 240/이벤트 500 상한·세션/연결/메모리 정리 |
 | 배포 | Windows PE x64·실제 frozen 단일/10대 스모크·JSON/종료 코드·소스/고지/ZIP/각 SHA |
 | 공개 자료 | 비밀/운영 데이터 미포함·예시 주소·문서/패키지/태그 버전 일치 |

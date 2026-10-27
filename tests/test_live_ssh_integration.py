@@ -42,6 +42,8 @@ class _LabSSH:
     def __init__(self, role):
         self.role = role
         self.split_switches = False
+        self.switches_output = None
+        self.identity_ip = None
         self.key = paramiko.RSAKey.generate(2048)
         self.allow_auth = True
         self.auth_attempts = 0
@@ -112,10 +114,12 @@ class _LabSSH:
             transport.close()
 
     def reply(self, command):
-        switch_ip = "192.0.2.10" if self.role == "MM" else "192.0.2.20"
+        switch_ip = self.identity_ip or ("192.0.2.10" if self.role == "MM" else "192.0.2.20")
         role = "conductor" if self.role == "MM" else "MD"
         model = "ArubaMM-HW-10K" if self.role == "MM" else "Aruba7240XM"
         if command == "show switches":
+            if self.switches_output is not None:
+                return self.switches_output
             if self.split_switches:
                 identity = table(["IP Address", "Name", "Type", "Model", "Version"], [
                     ["192.0.2.10", "LAB-MM", "conductor", "ArubaMM-HW-10K", "8.10.0.0"],
@@ -131,7 +135,8 @@ class _LabSSH:
                 ["192.0.2.20", "LAB-MD", "MD", "Aruba7240XM", "8.10.0.0", "up"],
             ], "Total Switches:{count}")
         if command == "show switchinfo":
-            return f"Hostname is LAB-{self.role}\nInternet address is {switch_ip} 255.255.255.0\nswitchrole:{role}"
+            mask = "" if ":" in switch_ip else " 255.255.255.0"
+            return f"Hostname is LAB-{self.role}\nInternet address is {switch_ip}{mask}\nswitchrole:{role}"
         if command == "show version":
             return f"ArubaOS (MODEL: {model}), Version 8.10.0.0"
         if command.startswith("show global-user-table"):
@@ -218,5 +223,73 @@ def test_real_ssh_mm_discovery_and_selected_management_address_probe(lab, tmp_pa
         assert "192.0.2.20" in resolved.mappings
         assert not any(command.startswith("show user-table") for command in md.commands)
         assert "show switches" not in md.commands  # Selection probe does not recursively scan topology.
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("split", [False, True])
+def test_real_ssh_mixed_ipv4_ipv6_discovery_preserves_selected_md_mapping(lab, tmp_path, monkeypatch, split):
+    from aruba_client_live_tracker.discovery import DiscoveryService
+
+    # Only the documented None/IPv6 column behavior is reproduced, with RFC
+    # 5737/3849 values. These rows are synthetic, not copied operational output.
+    mm, md = lab("MM"), lab("MD")
+    headers = ["IP Address", "IPv6 Address", "Name", "Location", "Type", "Model", "Version"]
+    rows = [
+        ["192.0.2.10", "None", "LAB-MM", "Building1.floor1", "conductor", "ArubaMM-HW-10K", "8.10.0.0"],
+        ["None", "2001:0db8:0:0:0:0:0:11", "LAB-STANDBY", "Building1.floor1", "standby", "ArubaMM-HW-10K", "8.10.0.0"],
+        ["None", "2001:0db8:0:0:0:0:0:20", "LAB-MD", "Building1.floor1", "MD", "Aruba7240XM", "8.10.0.0"],
+    ]
+    status_headers = ["Status", "Configuration State", "Config Sync Time (sec)", "Config ID"]
+    status_rows = [["up", "UPDATE SUCCESSFUL", "0", "7"] for _ in rows]
+    if split:
+        mm.switches_output = (table(headers, rows, "") + "\n" +
+                              table(status_headers, status_rows, "Total Switches:{count}"))
+    else:
+        mm.switches_output = table(headers + status_headers,
+                                   [row + status for row, status in zip(rows, status_rows)],
+                                   "Total Switches:{count}")
+    md.identity_ip = "2001:db8::20"
+
+    # Keep the genuine SSH stack while prohibiting any automatic connection to
+    # discovered addresses, including IPv6. Only explicitly chosen loopback
+    # management endpoints may be resolved or contacted by this test.
+    getaddrinfo = socket.getaddrinfo
+    endpoints = []
+    def loopback_only(host, port, *args, **kwargs):
+        endpoints.append((host, port))
+        assert host == "127.0.0.1" and port in (mm.port, md.port)
+        return getaddrinfo(host, port, *args, **kwargs)
+    monkeypatch.setattr(socket, "getaddrinfo", loopback_only)
+
+    service = DiscoveryService(Credentials("synthetic", "synthetic-secret"), tmp_path / "known_hosts")
+    try:
+        found = service.discover(Device("입력한 MM", "127.0.0.1", "AUTO", mm.port))
+        assert not found.diagnostics
+        assert len(found.devices) == 3
+        primary = next(device for device in found.devices if device.kind == "MM_PRIMARY")
+        standby = next(device for device in found.devices if device.kind == "MM_STANDBY")
+        candidate = next(device for device in found.devices if device.kind == "MD")
+        assert (primary.host, primary.port, primary.identity.switch_ip) == ("127.0.0.1", mm.port, "192.0.2.10")
+        assert (standby.host, standby.identity.switch_ip) == ("2001:db8::11", "2001:db8::11")
+        assert (candidate.host, candidate.identity.switch_ip) == ("2001:db8::20", "2001:db8::20")
+        assert candidate.mappings == ("2001:db8::20", "LAB-MD")
+        assert endpoints == [("127.0.0.1", mm.port)]
+        assert mm.auth_attempts == 1 and md.auth_attempts == 0
+        assert mm.commands == ["show switches", "show switchinfo", "show version"]
+
+        # A user can explicitly use an IPv4 management endpoint for an MD whose
+        # switch identity is IPv6; probing must retain its canonical mapping.
+        candidate = replace(candidate, host="127.0.0.1", port=md.port)
+        checked = service.probe([candidate])
+        assert not checked.diagnostics
+        assert len(checked.devices) == 1
+        resolved = checked.devices[0]
+        assert (resolved.host, resolved.port, resolved.kind) == ("127.0.0.1", md.port, "MD")
+        assert resolved.identity.switch_ip == "2001:db8::20"
+        assert resolved.mappings == ("2001:db8::20", "LAB-MD")
+        assert endpoints == [("127.0.0.1", mm.port), ("127.0.0.1", md.port)]
+        assert md.commands == ["show switchinfo", "show version"]
+        assert mm.commands == ["show switches", "show switchinfo", "show version"]
     finally:
         service.close()

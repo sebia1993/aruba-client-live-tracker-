@@ -14,6 +14,28 @@ STANDBY = Device("LAB-STANDBY", "192.0.2.11", "MM_STANDBY")
 MD = Device("LAB-MD", "198.51.100.20", mappings=("192.0.2.20",))
 
 
+@pytest.mark.parametrize('as_alias', [False, True])
+def test_map_md_equivalent_ipv6_spellings(as_alias):
+    address = '2001:db8::20'
+    md = Device('LAB-IPV6', '192.0.2.20' if as_alias else address, 'MD',
+                mappings=(address,) if as_alias else ())
+    assert map_md('2001:0DB8:0:0:0:0:0:20', [MM, md]) == md
+
+
+def test_map_md_equivalent_ipv6_aliases_remain_ambiguous():
+    one = Device('LAB-ONE', '192.0.2.20', 'MD', mappings=('2001:db8::20',))
+    two = Device('LAB-TWO', '192.0.2.21', 'MD', mappings=('2001:0db8:0:0:0:0:0:20',))
+    with pytest.raises(ValueError, match='중복'):
+        map_md('2001:db8::20', [one, two])
+
+
+def test_map_md_hostname_aliases_keep_exact_matching():
+    md = Device('LAB-ONE', '192.0.2.20', 'MD', mappings=('LAB-WLC',))
+    assert map_md('LAB-WLC', [md]) == md
+    with pytest.raises(ValueError, match='매핑이 없습니다'):
+        map_md('lab-wlc', [md])
+
+
 def test_map_md_exact_and_ambiguous():
     assert map_md("192.0.2.20", [MM, MD]) == MD
     with pytest.raises(ValueError):

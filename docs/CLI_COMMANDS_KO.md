@@ -73,6 +73,12 @@
 
 `show switches` 출력은 장비 식별 열과 Status/Configuration 열이 별도 표로 나뉠 수 있습니다. v0.3.3은 첫 표의 IP·Name·Type을 읽고 후속 표의 구조와 행 수를 검증합니다. 두 표 모두 마지막 `Total Switches`와 일치해야 합니다. 한 표로 출력되는 형식도 유지하며, 알 수 없는 표를 무조건 무시하지 않습니다. 공식 문서의 `state complete`/`debug` 예시는 출력 구조의 근거일 뿐 앱에서 해당 명령 변형을 자동 실행하지 않습니다.
 
+## IPv4가 없는 장비 행
+
+[ArubaOS 8.10 User Guide](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/810/ArubaOS-8%2E10%2E0%2E0-User-Guide.pdf)의 861쪽은 `show switches`에서 `IP Address`가 `None`이고 `IPv6 Address`가 있는 MM 행을 보여 줍니다. v0.3.4는 이 경우 IPv6 주소를 검사하여 사용합니다. IPv4가 있으면 기존 선택을 유지하고, 잘못된 IPv4를 IPv6로 덮어쓰거나 주소 없는 행을 버리지 않습니다. 주소·행 수·중복·역할 검증은 유지합니다. 장비 관리 주소의 IPv6 지원이며 클라이언트 검색 범위(IPv4/MAC)는 바뀌지 않습니다.
+
+문서의 해당 예시는 표시된 행 수와 `Total Switches`가 달라 완전한 CLI 응답으로 사용할 수 없습니다. 자동 검사는 같은 열 구조의 RFC 5737/RFC 3849 가상 주소와 완전한 행 수로 수행합니다. 이 형식의 지원 누락은 확인했지만 사용자가 보고한 오류의 실제 원인이 IPv6인지는 확인되지 않았습니다. [해당 패치 릴리스 노트](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/Release-Notes/810/ArubaOS-8%2E10%2E0%2E10-Release-Notes.pdf)에서도 이 앱의 파싱 오류를 장비 결함으로 설명하는 근거는 확인하지 못했습니다.
+
 ## 사용자 장비에서 확인할 항목
 
 발견 시 seed와 선택한 장비의 읽기 전용 명령 권한·역할·주소를 먼저 확인합니다. 처음에는 60초 주기로 대상 MAC 하나를 조회하여 MM Primary/Standby, Current switch 매핑, MD 사용자 결과와 AP 소유 관계를 확인한다. 각 명령의 거부 여부·필터 결과·필드 단위와 수집 시간을 확인한 후 15초로 낮춘다. AP-535 및 7240XM의 실제 카운터 의미, 클러스터 UAC/AAC 차이, 시계/시간대, dormant/비활성 행, 읽기 권한, 출력 폭·페이지 처리, 절전 단말의 오래된 마지막 패킷 값은 운영 환경에서 검증해야 한다. 실제 출력 원문을 공개 이슈나 저장소에 첨부하지 않는다.

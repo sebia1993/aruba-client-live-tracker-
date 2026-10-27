@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from ipaddress import ip_address
 from pathlib import Path
 
 from .commands import (
@@ -101,9 +102,17 @@ class _PollContext:
         return self.result
 
 
+def _mapping_key(value: str):
+    try:
+        return ip_address(value)
+    except ValueError:
+        return value  # Non-IP aliases retain their exact, explicitly registered spelling.
+
+
 def map_md(current_switch: str, devices: list[Device]) -> Device:
+    key = _mapping_key(current_switch)
     matches = [device for device in devices if device.enabled and device.kind == "MD"
-               and current_switch in (device.host, *device.mappings)]
+               and any(key == _mapping_key(alias) for alias in (device.host, *device.mappings))]
     if not matches:
         raise ValueError("담당 MD 매핑이 없습니다. 장비 설정에서 Current switch 값과 SSH 관리 주소의 매핑을 추가하십시오.")
     if len(matches) > 1:

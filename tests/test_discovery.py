@@ -154,6 +154,17 @@ def test_switch_table_failure_explains_static_reason_without_raw_rows(service):
     assert 'LAB-MD' not in diagnostic.message and '192.0.2.20' not in diagnostic.message
 
 
+def test_bad_address_diagnostic_has_structure_but_no_remote_values(service):
+    seed_outputs()
+    FakeSession.outputs[('192.0.2.10', 'show switches')] = switches().replace('192.0.2.20', 'BAD-SECRET')
+    result = service.discover(Device('seed', '192.0.2.10', 'AUTO'))
+    diagnostic = next(d for d in result.diagnostics if d.code == 'SWITCH_TABLE_PARSE_FAILED')
+    assert '출력 5행' in diagnostic.message and 'IP 열 길이 10' in diagnostic.message
+    assert 'BAD-SECRET' not in diagnostic.message and 'LAB-MD' not in diagnostic.message
+    assert len(result.devices) == 1  # The partial list is never registered as discovery success.
+    assert {ip for ip, _ in FakeSession.calls} == {'192.0.2.10'}
+
+
 def test_probe_selected_only_and_unknown_model_stays_auto(service):
     FakeSession.outputs = {
         ('192.0.2.20', 'show switchinfo'): 'Hostname: LAB-MD\nInternet address: 192.0.2.20\nswitchrole:local',

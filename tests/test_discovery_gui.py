@@ -374,3 +374,93 @@ def test_initial_dialog_defaults_preserved_on_large_screen(qtbot, tmp_path, monk
     assert (discovery.width(), discovery.height()) == (1120, 650)
     settings.reject()
     discovery.reject()
+
+
+def test_failed_list_lookup_remains_previous_operation_after_successful_probe(qtbot, tmp_path):
+    lookup_error = Diagnostic('discovery', 'SWITCH_TABLE_PARSE_FAILED', 'MM 목록 형식을 해석하지 못했습니다.',
+                              command='show switches')
+    class FailedLookup(FakeDiscovery):
+        def discover(self, seed, cancel=None):
+            return result([replace(seed, kind='MM_PRIMARY', origin='discovered')], [lookup_error])
+    dialog = DiscoveryDialog(Device('MM', '192.0.2.1', 'AUTO'), [], Credentials('x', 'y'),
+                             tmp_path / 'known_hosts', service_factory=FailedLookup)
+    qtbot.addWidget(dialog)
+    qtbot.waitUntil(lambda: dialog.grid.rowCount() == 1)
+    assert 'MM 목록 조회' in dialog.notice.text() and '오류 1건' in dialog.notice.text()
+    assert '발견 1대' not in dialog.notice.text()
+    dialog.probe_selected()
+    qtbot.waitUntil(lambda: dialog.register_button.isEnabled())
+    text = dialog.details.toPlainText()
+    assert '현재 작업 · 선택 장비 검사 1회 · 완료 · 진단 없음' in text
+    assert '이전 작업 · MM 목록 조회 · 완료 · 오류 1건' in text
+    assert text.index('이전 작업 · MM 목록 조회') < text.index('SWITCH_TABLE_PARSE_FAILED')
+    assert lookup_error.message in text
+    assert '이전 MM 목록 조회 오류' in dialog.notice.text()
+    assert dialog.diagnostics == [lookup_error]
+    dialog.reject()
+
+
+def test_failed_probe_is_current_operation_and_keeps_lookup_error(qtbot, tmp_path):
+    lookup_error = Diagnostic('discovery', 'SWITCH_TABLE_PARSE_FAILED', 'MM 목록 형식을 해석하지 못했습니다.')
+    class FailedProbe(FakeDiscovery):
+        def discover(self, seed, cancel=None):
+            return result([replace(seed, kind='MM_PRIMARY')], [lookup_error])
+        def probe(self, devices, cancel=None):
+            raise RuntimeError('raw exception must not be exposed')
+    dialog = DiscoveryDialog(Device('MM', '192.0.2.1', 'AUTO'), [], Credentials('x', 'y'),
+                             tmp_path / 'known_hosts', service_factory=FailedProbe)
+    qtbot.addWidget(dialog)
+    qtbot.waitUntil(lambda: dialog.grid.rowCount() == 1)
+    dialog.probe_selected()
+    qtbot.waitUntil(lambda: not dialog._busy)
+    text = dialog.details.toPlainText()
+    assert '현재 작업 · 선택 장비 검사 1회 · 실패' in text
+    assert '이전 작업 · MM 목록 조회 · 완료 · 오류 1건' in text
+    assert 'DISCOVERY_FAILED' in text and 'SWITCH_TABLE_PARSE_FAILED' in text
+    assert '선택 장비 검사 1회 실패' in dialog.notice.text()
+    assert 'raw exception' not in text
+    assert not dialog.register_button.isEnabled()
+    assert dialog.diagnostics[0] is lookup_error
+    assert len(dialog.diagnostics) == 2
+    dialog.reject()
+
+
+def test_repeated_probe_history_distinguishes_results_and_in_flight_operation(qtbot, tmp_path):
+    entered, release = threading.Event(), threading.Event()
+    auth_error = Diagnostic('auth', 'AUTH_FAILED', 'SSH 인증에 실패했습니다.')
+    class RepeatedProbe(FakeDiscovery):
+        calls = 0
+        def probe(self, devices, cancel=None):
+            type(self).calls += 1
+            if self.calls == 1:
+                return result(devices, [auth_error])
+            if self.calls == 3:
+                entered.set()
+                release.wait(2)
+            return result(devices)
+    device = Device('MM', '192.0.2.1', 'MM_PRIMARY')
+    dialog = DiscoveryDialog(device, [], Credentials('x', 'y'), tmp_path / 'known_hosts',
+                             service_factory=RepeatedProbe, initial_devices=[device])
+    qtbot.addWidget(dialog)
+    qtbot.waitUntil(lambda: dialog.register_button.isEnabled())
+    assert '현재 작업 · 선택 장비 검사 1회 · 완료 · 오류 1건' in dialog.details.toPlainText()
+    dialog.probe_selected()
+    qtbot.waitUntil(lambda: dialog.register_button.isEnabled())
+    text = dialog.details.toPlainText()
+    assert '현재 작업 · 선택 장비 검사 2회 · 완료 · 진단 없음' in text
+    assert '이전 작업 · 선택 장비 검사 1회 · 완료 · 오류 1건' in text
+    assert 'MM 목록 조회' not in text
+    dialog.probe_selected()
+    qtbot.waitUntil(entered.is_set)
+    text = dialog.details.toPlainText()
+    assert '현재 작업 · 선택 장비 검사 3회 · 진행 중' in text
+    assert '이전 작업 · 선택 장비 검사 2회 · 완료 · 진단 없음' in text
+    assert not dialog.register_button.isEnabled()
+    release.set()
+    qtbot.waitUntil(lambda: dialog.register_button.isEnabled())
+    text = dialog.details.toPlainText()
+    assert text.count('현재 작업') == 1 and text.count('이전 작업') == 2
+    assert '현재 작업 · 선택 장비 검사 3회 · 완료 · 진단 없음' in text
+    assert 'AUTH_FAILED' in text
+    assert dialog.diagnostics == [auth_error]
+    dialog.reject()

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from ipaddress import IPv4Address, IPv4Network, ip_address
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, ip_address
 
 from .models import DeviceIdentity, utc_now
 from .parsers import ParseError, reject_errors
@@ -46,6 +46,22 @@ def _switch_cells(line: str, labels: list[str], starts: list[int]) -> dict[str, 
         raise ParseError('장비 표 데이터의 열 위치가 올바르지 않습니다.')
     return {label: line[start:starts[i + 1] if i + 1 < len(starts) else None].strip()
             for i, (label, start) in enumerate(zip(labels, starts))}
+
+
+def _switch_address(cells: dict[str, str], line_number: int) -> str:
+    ipv4, ipv6 = cells['IP Address'], cells.get('IPv6 Address', '')
+    # The AOS 8.10 User Guide (p. 861) documents None in IP Address for
+    # IPv6-only rows. Keep IPv4 preference; a malformed IPv4 is not absence.
+    structure = (f'(출력 {line_number}행 · IP 열 길이 {len(ipv4)} · '
+                 f'IPv6 열 길이 {len(ipv6)})')
+    if ipv4.casefold() == 'none' and (not ipv6 or ipv6.casefold() == 'none'):
+        raise ParseError(f'장비 표에 사용 가능한 IP 주소가 없는 행이 있습니다. {structure}')
+    try:
+        return str(IPv6Address(ipv6) if ipv4.casefold() == 'none' else ip_address(ipv4))
+    except ValueError:
+        # Expose only position/lengths: remote values or underlying exception
+        # text may contain operational addresses, names or injected content.
+        raise ParseError(f'장비 표의 IP 형식이 올바르지 않습니다. {structure}') from None
 
 
 def parse_switches(output: str) -> list[DeviceIdentity]:
@@ -104,10 +120,7 @@ def parse_switches(output: str) -> list[DeviceIdentity]:
             if continuation_count > expected:
                 raise ParseError('장비 보조 표 완료 건수와 실제 행 수가 다릅니다.')
             continue
-        try:
-            address = str(ip_address(cells['IP Address']))
-        except ValueError as exc:
-            raise ParseError('장비 표의 IP 형식이 올바르지 않습니다.') from exc
+        address = _switch_address(cells, index)
         hostname = cells['Name']
         if not _SAFE_NAME.fullmatch(hostname) or address in addresses:
             raise ParseError('장비 표 이름 또는 중복 IP를 확인하세요.')

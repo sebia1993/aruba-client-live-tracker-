@@ -3,6 +3,9 @@
 The layouts, not operational data, follow HPE's show switches CLI reference:
 https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-switches.htm
 The AOS 8.10 CLI PDF physical page 3385 also shows the configuration continuation.
+The AOS 8.10 User Guide page 861 documents an absent IPv4 cell (None) with
+an IPv6 address. These tests use invented RFC 3849 addresses and complete counts;
+the published example itself omits rows and is not a complete CLI capture.
 """
 import pytest
 
@@ -92,3 +95,54 @@ def test_continuation_sync_label_spacing_and_indented_crlf_are_supported():
     output = switches_output(headers=headers)
     output = '\r\n'.join('    ' + line for line in output.splitlines())
     assert [row.hostname for row in parse_switches(output)] == ['LAB-MM', 'LAB-STANDBY', 'LAB-WLC']
+
+
+@pytest.mark.parametrize('split', [False, True])
+def test_documented_none_ipv4_uses_ipv6_without_losing_roles_or_rows(split):
+    identities = [row[:] for row in IDENTITY_ROWS]
+    identities[0][:2] = ['None', '2001:0db8:0:0::10']
+    identities[1][:2] = ['None', '2001:db8::11']
+    identities[2][:2] = ['192.0.2.20', '2001:db8::20']
+    text = (switches_output(identities=identities) if split else
+            table(IDENTITY_HEADERS, identities) + '\nTotal Switches:3')
+    result = parse_switches(text)
+    assert [(r.switch_ip, role_kind(r.reported_role)) for r in result] == [
+        ('2001:db8::10', 'MM_PRIMARY'), ('2001:db8::11', 'MM_STANDBY'), ('192.0.2.20', 'MD')]
+
+
+@pytest.mark.parametrize('ipv4,ipv6', [
+    ('None', 'None'), ('None', ''), ('None', 'not-an-address'), ('None', '192.0.2.99'),
+    ('invalid', '2001:db8::99'), ('', '2001:db8::99'), ('999.0.2.99', '2001:db8::99'),
+])
+def test_missing_or_invalid_addresses_never_skip_rows_or_override_bad_ipv4(ipv4, ipv6):
+    identities = [row[:] for row in IDENTITY_ROWS]
+    identities[1][:2] = [ipv4, ipv6]
+    with pytest.raises(ParseError) as caught:
+        parse_switches(switches_output(identities=identities))
+    message = str(caught.value)
+    assert '출력 7행' in message
+    assert f'IP 열 길이 {len(ipv4)}' in message
+    assert f'IPv6 열 길이 {len(ipv6)}' in message
+    for private_value in ('LAB-', '192.0.2.', '2001:db8:', 'not-an-address', 'invalid', '999.0.2.'):
+        assert private_value not in message
+
+
+def test_documented_none_ipv4_requires_ipv6_column():
+    text = table(['IP Address', 'Name', 'Type'], [['None', 'LAB-MM', 'conductor']])
+    with pytest.raises(ParseError, match='사용 가능한 IP 주소'):
+        parse_switches(text + '\nTotal Switches:1')
+
+
+def test_equivalent_ipv6_addresses_are_duplicates():
+    identities = [row[:] for row in IDENTITY_ROWS]
+    identities[0][:2] = ['None', '2001:0db8:0:0::10']
+    identities[1][:2] = ['None', '2001:db8::10']
+    with pytest.raises(ParseError, match='중복 IP'):
+        parse_switches(switches_output(identities=identities))
+
+
+def test_ipv6_row_does_not_bypass_incomplete_table_checks():
+    identities = [row[:] for row in IDENTITY_ROWS]
+    identities[0][:2] = ['None', '2001:db8::10']
+    with pytest.raises(ParseError, match='실제 행 수'):
+        parse_switches(switches_output(identities=identities, total=7))
