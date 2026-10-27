@@ -160,9 +160,11 @@ class DiscoveryService:
         if 'show switches' in outputs:
             try:
                 rows = parse_switches(outputs['show switches'])
-            except ParseError:
+            except ParseError as exc:
+                # parse_switches emits fixed Korean reasons, never remote rows
+                # or field values. Keep the diagnostic actionable without raw CLI.
                 diagnostics.append(_diagnostic(seed, 'discovery', 'SWITCH_TABLE_PARSE_FAILED',
-                    '장비 목록이 불완전하거나 형식을 인식하지 못했습니다.', 'show switches'))
+                    f'장비 목록을 해석하지 못했습니다. {exc}', 'show switches'))
         # An endpoint match is definitive. Otherwise self identity must select
         # exactly one row; conflicts across address and hostname remain unresolved.
         matches = [row for row in rows if row.switch_ip == _endpoint(seed)[0]]

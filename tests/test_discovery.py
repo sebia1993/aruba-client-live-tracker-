@@ -141,6 +141,19 @@ def test_discovery_failure_retains_seed_and_sanitizes_exception(service):
     assert 'synthetic-password' not in str(result)
 
 
+def test_switch_table_failure_explains_static_reason_without_raw_rows(service):
+    seed_outputs()
+    malformed = switches().replace('Total Switches: 3', 'Total Switches: 4')
+    with pytest.raises(ParseError) as reason:
+        parse_switches(malformed)
+    FakeSession.outputs[('192.0.2.10', 'show switches')] = malformed
+    result = service.discover(Device('seed', '192.0.2.10', 'AUTO'))
+    diagnostic = next(d for d in result.diagnostics if d.code == 'SWITCH_TABLE_PARSE_FAILED')
+    assert str(reason.value) in diagnostic.message
+    assert diagnostic.command == 'show switches'
+    assert 'LAB-MD' not in diagnostic.message and '192.0.2.20' not in diagnostic.message
+
+
 def test_probe_selected_only_and_unknown_model_stays_auto(service):
     FakeSession.outputs = {
         ('192.0.2.20', 'show switchinfo'): 'Hostname: LAB-MD\nInternet address: 192.0.2.20\nswitchrole:local',

@@ -41,6 +41,7 @@ class _ServerInterface(paramiko.ServerInterface):
 class _LabSSH:
     def __init__(self, role):
         self.role = role
+        self.split_switches = False
         self.key = paramiko.RSAKey.generate(2048)
         self.allow_auth = True
         self.auth_attempts = 0
@@ -115,6 +116,16 @@ class _LabSSH:
         role = "conductor" if self.role == "MM" else "MD"
         model = "ArubaMM-HW-10K" if self.role == "MM" else "Aruba7240XM"
         if command == "show switches":
+            if self.split_switches:
+                identity = table(["IP Address", "Name", "Type", "Model", "Version"], [
+                    ["192.0.2.10", "LAB-MM", "conductor", "ArubaMM-HW-10K", "8.10.0.0"],
+                    ["192.0.2.20", "LAB-MD", "MD", "Aruba7240XM", "8.10.0.0"],
+                ], "")
+                status = table(["Status", "Configuration State", "Config Sync Time (sec)", "Config ID"], [
+                    ["up", "UPDATE SUCCESSFUL", "0", "7"],
+                    ["up", "UPDATE SUCCESSFUL", "0", "7"],
+                ], "Total Switches:{count}")
+                return identity + "\n" + status
             return table(["IP Address", "Name", "Type", "Model", "Version", "Status"], [
                 ["192.0.2.10", "LAB-MM", "conductor", "ArubaMM-HW-10K", "8.10.0.0", "up"],
                 ["192.0.2.20", "LAB-MD", "MD", "Aruba7240XM", "8.10.0.0", "up"],
@@ -185,9 +196,11 @@ def test_real_ssh_auto_trust_monitoring_and_changed_key_diagnostics(lab, tmp_pat
         collector.close()
 
 
-def test_real_ssh_mm_discovery_and_selected_management_address_probe(lab, tmp_path):
+@pytest.mark.parametrize("split", [False, True])
+def test_real_ssh_mm_discovery_and_selected_management_address_probe(lab, tmp_path, split):
     from aruba_client_live_tracker.discovery import DiscoveryService
     mm, md = lab("MM"), lab("MD")
+    mm.split_switches = split
     service = DiscoveryService(Credentials("synthetic", "synthetic-secret"), tmp_path / "known_hosts")
     try:
         found = service.discover(Device("입력한 MM", "127.0.0.1", "AUTO", mm.port))

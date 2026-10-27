@@ -1,45 +1,23 @@
-# v0.3.2 빌드와 검증 기록
+# v0.3.3 빌드와 검증 기록
 
-기록일: 2026-10-27. 실제 Aruba 장비와 Windows 11 실기 검증은 수행하지 않았습니다. v0.3.2는 MM 간편 발견·최초 키 자동 저장·단계별 진단과 반복 검사 개선을 포함하며, Windows 동시 최초 키 저장의 잠금 파일 초기화 경합을 수정한 배포입니다. 실행 정책과 의존성은 바뀌지 않았습니다.
+기록일: 2026-10-27. MM의 장비 찾기에서 `SWITCH_TABLE_PARSE_FAILED`가 발생한 사용자 보고를 조사했습니다. 사용자는 장비 정보 뒤에 별도 `Status / Configuration State` 표가 표시됨을 확인했습니다. 실제 주소·장비 원문·계정은 수집하지 않았습니다.
 
-## 현재 검증
+## 원인과 수정 범위
 
-v0.3.2 최종 로컬 테스트 308개(21.13초), Ruff·공개 자료 보안 검사·버전 일치 검사와 독립 리뷰를 통과했습니다. Windows CI, 태그 Release 게시, 실제 공개 다운로드의 SHA-256·CRC·구성 검증도 완료했습니다. 이전 결과를 새 버전의 통과로 대체하지 않습니다.
+v0.3.2의 파서는 장비 목록을 단일 표로 가정하여 두 번째 표의 머리글을 IP 행으로 해석했습니다. 합성 출력과 실제 TCP loopback SSH 서버에서 같은 오류를 재현했습니다. HPE 공식 문서에도 identity 표 뒤에 Status/Configuration State/Config Sync Time(sec)/Config ID 표가 있는 형식이 기재돼 있습니다.
 
-## 최종 Windows CI
+첫 장비 표와 문서에 근거한 후속 표를 각각 파싱하고, 두 표 모두 `Total Switches`와 행 수가 일치해야 목록을 채택하도록 수정합니다. 잘린 표·추가 행·알 수 없는 머리글·중복 IP·잘못된 완료 건수는 계속 거부합니다. 역할은 첫 표의 명시적인 Type에 근거합니다. 기존 단일 표와 정상 0건 표도 회귀 검사합니다. 조회 명령은 기존 `show switches` 그대로이며 새로운 명령 변형이나 전체 MD 탐색은 추가하지 않습니다.
 
-[CI 40439923216](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40439923216)는 커밋 `700f74f2d7c772f2374881993f311cfcae216d17`에서 Ubuntu·Windows 모두 성공했습니다. Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0에서 초기 308개(37.60초), 빌드 재검사 308개(37.15초)를 통과했습니다. JUnit은 오류·실패·건너뛰기 모두 0입니다. 실제 CRT 잠금/프로세스 경쟁과 빈 잠금 파일 회귀 검사를 포함한 trust-lock 8개가 모두 통과했습니다.
+형식 오류에는 고정된 한국어 세부 사유를 표시하며 CLI 원문·셀 값은 포함하지 않습니다. 기존 단일 표, 최초 키 자동 저장과 변경 키 차단, 단일/10대 추적을 유지합니다.
 
-소스·EXE 단일 데모는 1대 5회, 다중 데모는 10대 각 5회(총 50회), 독립 MAC 10개와 SQLite 저장·정상 종료를 확인했습니다. 공개 의존성 공지 검사는 고정 버전 25개에서 영향 패키지 0개였습니다. [CI 검증 JSON](validation/v0.3.2/ci-verification.json)에 아티팩트 요약을 보존합니다. 같은 커밋의 태그에서 최종 배포를 빌드합니다.
+## 검증 상태
 
-## 최종 배포와 다운로드
+로컬 전체 329개 테스트(22.66초), 실제 TCP loopback SSH의 단일/분리 표 발견 및 선택 WLC 검사, 독립 코드 리뷰를 통과했습니다. Windows CI·EXE·Release·공개 다운로드 결과는 수행 후 기록합니다. v0.3.2의 결과는 이 버전의 검증으로 대체하지 않습니다.
 
-같은 소스 커밋의 `v0.3.2` 태그에서 [Release 40440208364](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40440208364)가 성공했고 [공개 릴리스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.2)에 게시됐습니다. Windows에서 308개(35.40초), Ruff와 실제 EXE 단일/10대 검사를 재통과했습니다. 게시 후 실행 ZIP 및 대응 소스 ZIP과 체크섬 파일을 직접 다운로드했습니다.
+## 공식 근거와 한계
 
-| 공개 파일 | 바이트 | SHA-256 |
-|---|---:|---|
-| `ArubaClientLiveTracker_v0.3.2_windows_x64.zip` | 43,324,834 | `60bd4b8f22668f1e5c7bc722768116657878350fa146375abbf603701c1a3a9c` |
-| `ArubaClientLiveTracker_v0.3.2_third_party_sources.zip` | 72,212,226 | `a852217187346e492f40a29c8fc8beabb42acf79b8c16c40fc4fc28d24771622` |
+- [HPE show switches](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-switches.htm): 여러 표로 나눈 출력 예시. 해당 문서의 필터/debug 변형을 앱에서 실행한다는 뜻이 아닙니다.
+- [ArubaOS 8.10 CLI Reference PDF](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/810/ArubaOS-8.x-CLI-Reference-Guide.pdf): 물리 3385쪽 `show switches state complete`의 동일한 분리 표 구조.
+- [이전 v0.3.2 완료 기록](validation/v0.3.2/BUILD_VALIDATION_KO.md)
 
-[다운로드 검증 JSON](validation/v0.3.2/release-verification.json)은 ZIP CRC·AMD64 PE32+ Windows GUI·일반 사용자 `asInvoker`·Qt 한국어 번역·라이선스 10개·정확한 대응 소스 6개·배포 SOURCE의 실행 소스 18개 일치(개행 정규화)·필수 소스 29개·308개 JUnit·단일/10대 스모크 증거를 확인합니다. 706개 ZIP 멤버의 파일명과 제한된 텍스트 비밀 패턴 검사에서 로컬 설정/DB/운영 로그 등 금지 파일은 0개였습니다. 이 검사는 모든 종류의 임의 비밀정보 부재를 수학적으로 증명하지 않습니다. 실제 운영망 자료는 개발·캡처·테스트에 사용하지 않았습니다.
-
-태그 이후 커밋은 이 검증 결과를 문서화하며 배포 실행 코드와 의존성은 변경하지 않습니다. v0.3.0 실패 태그와 v0.3.1 prerelease는 이력을 보존하고, 사용자는 v0.3.2를 사용합니다.
-
-## 실패와 수정 기록
-
-- 첫 v0.3.0 [CI 40436681206](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40436681206)의 Ubuntu 테스트는 304개 통과·1개 실패했습니다. CLI 응답 시간 초과 테스트의 초기 연결 40ms 제한에 서버 키 저장 시간이 포함됐습니다. 인증·프롬프트 완료 후 명령 읽기 단계에 가상 시계를 적용하여 검사 대상을 분리했습니다. 느린 fsync에서도 같은 TIMEOUT·재시도·연결 정리 조건을 검사합니다.
-- 독립 리뷰에서 500행 이후 장비 목록 선택 오류를 찾아 전체 행을 보존했습니다. 501행 회귀 및 독립 1,001행 검사를 통과했습니다. 초기 창 크기도 가용 논리 화면에 맞추고 910×512 화면에서 저장/등록 버튼의 포함을 검사했습니다.
-- 후속 [CI 40437725402](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40437725402)는 Ubuntu·Windows 307개와 실제 EXE 단일/10대 검사를 통과했습니다. 당시 증거는 [v0.3.0 기록](validation/v0.3.0/BUILD_VALIDATION_KO.md)과 [CI JSON](validation/v0.3.0/ci-verification.json)에 보존했습니다.
-- v0.3.0 태그의 [Release 40438268055](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40438268055)는 306개 통과·1개 실패로 게시 전에 중단했습니다. 10대가 고르게 240~241회 진행했지만 반복 테스트의 60초 처리량 기준에 미달했습니다. 실패한 공개 태그를 보존하고 v0.3.1로 배포하며, 실제 작업자·SQLite·300회·버퍼 상한·공정성 검증을 유지하고 완료 통지 기반 대기로 바꿉니다.
-
-반복 테스트 수정의 재현 증거: 실제 SQLite 저장마다 22ms를 추가했을 때 이전 검사는 60.01초·2,656건에서 실패했고 수정 후는 67.87초·정확히 3,000건 저장으로 통과했습니다. 별도로 작업자를 10.2초 지연시킨 경우 완료 대기 제한이 실패를 검출했습니다. 테스트는 실제 작업자와 DB를 유지하고 유한 반복 수·작업자 정지 제한 및 배치별 공정성 조건을 검사합니다.
-
-- v0.3.1 [Release 40439196292](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40439196292)는 307개·실제 EXE 검사 및 게시에 성공했으나 병렬 [CI 40439193538](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40439193538)의 Windows 빌드 재검사에서 잠금 경합 1건이 실패했습니다. 해당 태그·배포 파일을 보존하고 prerelease로 표시했습니다. [v0.3.1 기록](validation/v0.3.1/BUILD_VALIDATION_KO.md)을 참조하십시오.
-- 원인은 잠금 획득 전에 빈 sidecar 파일에 NUL을 쓰던 초기화였습니다. 다른 프로세스가 먼저 해당 byte를 잠그면 쓰기가 EACCES로 실패합니다. 잠금은 EOF 이후 byte에도 적용되므로 초기화 쓰기를 제거했습니다. [Python msvcrt 문서](https://docs.python.org/3/library/msvcrt.html#msvcrt.locking)와 [Microsoft CRT 문서](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/locking?view=msvc-170)를 근거로 하며, 결정적 Windows 분기 회귀 검사는 이전 코드의 실패를 재현합니다. 비차단 잠금 재시도·취소·기한·키 변경 차단·인증 전 검증은 유지합니다.
-
-## 검증 경계
-
-소스 및 EXE 스모크는 Qt offscreen에서 GUI 생성·독립 관측·SQLite 저장·종료를 확인합니다. Windows Server 2025 CI는 Windows 11 실기 화면/배율 검증이 아닙니다. 실제 ArubaOS 8.10·MM-HW-10K·7240XM/7210·AP-535의 권한·출력·클러스터 동작·부하·장시간 실행은 사용자 실기 확인이 필요합니다. 기존 MD 실패의 실제 원인은 아직 미확정입니다. 실행 파일은 코드 서명되지 않았습니다. 의존성 공지 검사는 내장 네이티브 라이브러리 전체 감사를 뜻하지 않습니다.
-
-- [v0.2.0 기록](validation/v0.2.0/BUILD_VALIDATION_KO.md)
-- [v0.1.0 기록](validation/v0.1.0/BUILD_VALIDATION_KO.md)
+검증 데이터는 합성 자료이며 실제 Aruba 장비에 접속하지 않았습니다. 최종 실장비 발견·추적과 Windows 11 실기/고배율은 사용자 검증 대상입니다. 실행 파일은 코드 서명되지 않았습니다.

@@ -15,17 +15,13 @@ def role_kind(role: str) -> str:
     return _ROLE_KINDS.get(role.strip().casefold(), 'AUTO')
 
 
-def parse_switches(output: str) -> list[DeviceIdentity]:
-    """Read every type, requiring a complete table and explicit completion count."""
-    reject_errors(output)
-    lines = output.splitlines()
-    totals = list(re.finditer(r'(?im)^\s*Total\s+Switches\s*:\s*(\d+)\s*$', output))
-    if len(totals) != 1 or int(totals[0].group(1)) > 1000:
-        raise ParseError('장비 표의 완료 건수가 없거나 허용 범위를 초과했습니다.')
-    header_index = next((i for i, line in enumerate(lines)
-                         if all(label in line for label in ('IP Address', 'Name', 'Type'))), None)
-    if header_index is None:
-        raise ParseError('장비 표 머리글을 인식하지 못했습니다.')
+_CONTINUATION_COLUMNS = {
+    ('Status', 'Configuration State', 'Config Sync Time (sec)', 'Config ID'),
+    ('Status', 'Uptime', 'CrashInfo', 'Config Sync Time (sec)', 'License', 'Release Type'),
+}
+
+
+def _switch_layout(lines: list[str], header_index: int) -> tuple[list[str], list[int], int]:
     header = lines[header_index]
     separator_index = header_index + 1
     while separator_index < len(lines) and not lines[separator_index].strip():
@@ -37,14 +33,43 @@ def parse_switches(output: str) -> list[DeviceIdentity]:
         starts = [m.start() for m in re.finditer(r'\S(?:.*?\S)?(?=\s{2,}|$)', header)]
     else:
         starts = [m.start() for m in spans]
-    labels = [header[start:starts[i + 1] if i + 1 < len(starts) else None].strip()
+    labels = [re.sub(r'\s+', ' ', header[start:starts[i + 1] if i + 1 < len(starts) else None].strip())
               for i, start in enumerate(starts)]
-    if not all(label in labels for label in ('IP Address', 'Name', 'Type')) or len(set(labels)) != len(labels):
+    labels = [label.replace('Config Sync Time(sec)', 'Config Sync Time (sec)') for label in labels]
+    if not labels or not all(labels) or len(set(labels)) != len(labels):
+        raise ParseError('장비 표 열 위치를 인식하지 못했습니다.')
+    return labels, starts, separator_index + 1
+
+
+def _switch_cells(line: str, labels: list[str], starts: list[int]) -> dict[str, str]:
+    if line[:starts[0]].strip():
+        raise ParseError('장비 표 데이터의 열 위치가 올바르지 않습니다.')
+    return {label: line[start:starts[i + 1] if i + 1 < len(starts) else None].strip()
+            for i, (label, start) in enumerate(zip(labels, starts))}
+
+
+def parse_switches(output: str) -> list[DeviceIdentity]:
+    """Read flat or horizontal tables, requiring each block's full declared count."""
+    reject_errors(output)
+    lines = output.splitlines()
+    totals = list(re.finditer(r'(?im)^\s*Total\s+Switches\s*:\s*(\d+)\s*$', output))
+    if len(totals) != 1 or int(totals[0].group(1)) > 1000:
+        raise ParseError('장비 표의 완료 건수가 없거나 허용 범위를 초과했습니다.')
+    expected = int(totals[0].group(1))
+    header_index = next((i for i, line in enumerate(lines)
+                         if all(label in line for label in ('IP Address', 'Name', 'Type'))), None)
+    if header_index is None:
+        raise ParseError('장비 표 머리글을 인식하지 못했습니다.')
+    labels, starts, index = _switch_layout(lines, header_index)
+    if not all(label in labels for label in ('IP Address', 'Name', 'Type')):
         raise ParseError('장비 표 열 위치를 인식하지 못했습니다.')
     rows = []
     complete = False
     addresses = set()
-    for line in lines[separator_index + 1:]:
+    continuation_count = None
+    while index < len(lines):
+        line = lines[index]
+        index += 1
         if not line.strip():
             continue
         if re.fullmatch(r'\s*Total\s+Switches\s*:\s*\d+\s*', line, re.I):
@@ -55,8 +80,30 @@ def parse_switches(output: str) -> list[DeviceIdentity]:
             if re.fullmatch(r'\s*(?:\([^\r\n]{1,100}\)\s*)?[\w.*^:\[\] -]*[#>]\s*', line):
                 continue
             raise ParseError('완료 건수 뒤에 알 수 없는 데이터가 있습니다.')
-        cells = {label: line[start:starts[i + 1] if i + 1 < len(starts) else None].strip()
-                 for i, (label, start) in enumerate(zip(labels, starts))}
+        if line.lstrip().startswith('Status'):
+            if continuation_count is not None:
+                raise ParseError('장비 보조 표가 중복되어 목록을 확정할 수 없습니다.')
+            if len(rows) != expected:
+                raise ParseError('장비 식별 표 완료 건수와 실제 행 수가 다릅니다.')
+            labels, starts, index = _switch_layout(lines, index - 1)
+            if tuple(labels) not in _CONTINUATION_COLUMNS:
+                raise ParseError('장비 보조 표 머리글을 인식하지 못했습니다.')
+            continuation_count = 0
+            continue
+        cells = _switch_cells(line, labels, starts)
+        if continuation_count is not None:
+            # Status is not role evidence. Validate the whole continuation instead
+            # of silently skipping lines that could be truncated or injected rows.
+            if (any(not value or len(value) > 256 or any(ord(c) < 32 or ord(c) == 127 for c in value)
+                    for value in cells.values())
+                    or not re.fullmatch(r'[A-Za-z][A-Za-z _/-]{0,63}|-+', cells['Status'])
+                    or not re.fullmatch(r'\d+|N/A|-', cells['Config Sync Time (sec)'], re.I)
+                    or ('Config ID' in cells and not re.fullmatch(r'\d+|N/A|-', cells['Config ID'], re.I))):
+                raise ParseError('장비 보조 표의 상태 행이 불완전하거나 형식이 올바르지 않습니다.')
+            continuation_count += 1
+            if continuation_count > expected:
+                raise ParseError('장비 보조 표 완료 건수와 실제 행 수가 다릅니다.')
+            continue
         try:
             address = str(ip_address(cells['IP Address']))
         except ValueError as exc:
@@ -69,10 +116,12 @@ def parse_switches(output: str) -> list[DeviceIdentity]:
             raise ParseError('장비 식별 정보 형식을 확인하세요.')
         addresses.add(address)
         rows.append(DeviceIdentity(hostname, address, *values, utc_now(), 'show switches'))
-        if len(rows) > 1000:
-            raise ParseError('장비 표가 허용 행 수를 초과했습니다.')
-    if not complete or len(rows) != int(totals[0].group(1)):
+        if len(rows) > expected:
+            raise ParseError('장비 표 완료 건수와 실제 행 수가 다릅니다.')
+    if not complete or len(rows) != expected:
         raise ParseError('장비 표 완료 건수와 실제 행 수가 다릅니다.')
+    if continuation_count is not None and continuation_count != expected:
+        raise ParseError('장비 보조 표 완료 건수와 실제 행 수가 다릅니다.')
     return rows
 
 

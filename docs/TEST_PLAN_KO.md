@@ -7,7 +7,7 @@ python -m pytest -q --junitxml=artifacts/pytest-local.xml
 python -m ruff check src tests scripts
 python -m aruba_client_live_tracker.main --demo --smoke-test --data-dir smoke-single --smoke-result artifacts/source-single-smoke.json
 python -m aruba_client_live_tracker.main --multi-demo --smoke-test --data-dir smoke-multi --smoke-result artifacts/source-multi-smoke.json
-pwsh -File build_windows.ps1 -Version 0.3.2
+pwsh -File build_windows.ps1 -Version 0.3.3
 ```
 
 테스트는 운영망에 연결하지 않고 합성 CLI·가짜 SSH·데모를 사용합니다. 실행 결과와 개수는 [검증 기록](BUILD_VALIDATION_KO.md)에 기록하며 아래 표는 요구되는 검증 범위입니다.

@@ -1,5 +1,13 @@
 # 변경 이력
 
+## 0.3.3 — 2026-10-27 (수정·검증 준비 중)
+
+- MM 장비 발견에서 공식 `show switches` 출력의 장비 식별 표와 후속 Status/Configuration 표가 나뉘는 형식을 처리하기 위한 수정
+- 후속 표의 헤더를 IP 데이터 행으로 해석하여 `SWITCH_TABLE_PARSE_FAILED`가 발생하던 파서 문제를 수정 대상으로 기록
+- 패키지·Windows 빌드·대응 소스 ZIP 버전을 0.3.3으로 구분하며 SSH 신뢰 정책과 의존성은 유지
+
+최종 파서 회귀·Linux/Windows CI·네이티브 EXE·공개 배포 검증은 대기 중입니다. 검증된 최신 배포는 [v0.3.2](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.2)이며, 0.3.3의 결과는 [현재 검증 기록](docs/BUILD_VALIDATION_KO.md)에 기록합니다. 실제 사용자 장비에서의 재확인은 아직 완료하지 않았습니다.
+
 ## 0.3.2 — 2026-10-27
 
 - Windows에서 최초 신뢰 키를 동시에 저장할 때 발생한 잠금 파일 초기화 경합 수정
