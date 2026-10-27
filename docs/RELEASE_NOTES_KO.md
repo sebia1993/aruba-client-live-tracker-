@@ -6,7 +6,17 @@ MM에서 장비 찾기를 실행할 때 show switches가 장비 정보 표와 St
 
 Windows x64 ZIP 전체를 압축 해제하고 ArubaClientLiveTracker/ArubaClientLiveTracker.exe를 실행하십시오. Python 설치와 관리자 권한은 필요하지 않습니다. 코드 서명되지 않았습니다. 체크섬 및 LGPL 대응 소스 ZIP을 함께 제공합니다.
 
-검증 결과: 로컬 전체 329개 테스트와 실제 TCP loopback SSH의 분리 표 발견·선택 WLC 검사, 독립 리뷰를 통과했습니다. 최종 CI·Windows 태그 빌드·공개 다운로드 결과는 완료 후 기록합니다. 태그 빌드는 테스트·실제 EXE 단일/10대 실행 검사를 모두 통과해야 게시합니다. 실행 ZIP의 validation 폴더에 JUnit XML과 스모크 JSON을 포함합니다.
+검증 완료: Linux·Windows 329개 테스트와 실제 TCP loopback SSH의 분리 표 발견·선택 WLC 검사, 독립 리뷰를 통과했습니다. Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0에서 EXE를 빌드하고 단일 5회, 다중 10대 각 5회(총 50회)의 관측·SQLite 저장·독립 MAC·정상 종료를 확인했습니다. 태그 빌드에서도 329개가 통과했습니다. 고정 의존성 25개의 공개 공지에서 영향 패키지는 0개였습니다.
+
+CI: https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40442286970
+Release: https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40442677825
+
+게시 ZIP을 실제 다운로드하여 SHA-256·CRC·Windows x64 GUI EXE·일반 사용자 실행·한국어 번역·라이선스와 대응 소스·포함된 테스트/실행 증거를 확인했습니다.
+
+Windows ZIP SHA-256: `5cdd4a93fe4f286ec64ecb923c2ea3686aceaaebec1630f645903db5fd880abc`
+
+검증 기록: https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/BUILD_VALIDATION_KO.md
+다운로드 검증 JSON: https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.3/release-verification.json
 
 실제 Aruba 장비 접속과 Windows 11 실기/고배율은 사용자 확인 대상입니다. 자동 검사는 합성 출력과 loopback SSH, Qt offscreen으로 수행하며 실장비 검증으로 표현하지 않습니다.
 

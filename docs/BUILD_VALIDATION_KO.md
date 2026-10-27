@@ -12,7 +12,26 @@ v0.3.2의 파서는 장비 목록을 단일 표로 가정하여 두 번째 표�
 
 ## 검증 상태
 
-로컬 전체 329개 테스트(22.66초), 실제 TCP loopback SSH의 단일/분리 표 발견 및 선택 WLC 검사, 독립 코드 리뷰를 통과했습니다. Windows CI·EXE·Release·공개 다운로드 결과는 수행 후 기록합니다. v0.3.2의 결과는 이 버전의 검증으로 대체하지 않습니다.
+로컬 전체 329개 테스트(22.66초), 실제 TCP loopback SSH의 단일/분리 표 발견 및 선택 WLC 검사, 독립 코드 리뷰를 통과했습니다. Windows CI·네이티브 EXE 검사도 통과했습니다. Release 게시와 공개 다운로드의 SHA-256·CRC·구성 검증도 완료했습니다. v0.3.2의 결과는 이 버전의 검증으로 대체하지 않습니다.
+
+## 최종 Windows CI
+
+커밋 `be8869303d80d277d995ff4b931a0a6c2b0c819f`의 [CI 40442286970](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40442286970)는 Ubuntu와 Windows 모두 성공했습니다. Windows Server 2025 x64·Python 3.12.10·PyInstaller 6.16.0에서 초기 329개(46.76초), 빌드 재검사 329개(55.18초)를 통과했습니다. 두 JUnit의 실패·오류·건너뛰기는 0입니다.
+
+실제 EXE 단일 데모는 1대 5회, 다중 데모는 10대 각 5회(총 50회), 독립 MAC 10개와 SQLite 저장·정상 종료를 확인했습니다. 소스 데모도 동일합니다. 의존성 25개의 공개 공지에서 영향 패키지는 0개였습니다. [CI 검증 JSON](validation/v0.3.3/ci-verification.json)에 아티팩트 요약을 보존합니다. 동일 커밋의 태그에서 Release를 빌드합니다.
+
+## 최종 배포와 실제 다운로드
+
+동일 커밋의 `v0.3.3` 태그에서 [Release 40442677825](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40442677825)가 329개(48.95초), Ruff, 실제 EXE 단일/10대 검사를 통과하고 [공개 릴리스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.3)를 게시했습니다. 게시 파일을 직접 다운로드하여 검증했습니다.
+
+| 파일 | 바이트 | SHA-256 |
+|---|---:|---|
+| `ArubaClientLiveTracker_v0.3.3_windows_x64.zip` | 43,342,235 | `5cdd4a93fe4f286ec64ecb923c2ea3686aceaaebec1630f645903db5fd880abc` |
+| `ArubaClientLiveTracker_v0.3.3_third_party_sources.zip` | 72,212,226 | `20c95caa0fa265b0c2371d6507dac7784fda99f51b1ca2dcb96b6a9b6a8b74f1` |
+
+[다운로드 검증 JSON](validation/v0.3.3/release-verification.json)은 ZIP CRC, AMD64 PE32+ Windows GUI EXE, 일반 사용자 asInvoker, Qt 한국어 번역, 라이선스 10개, 정확한 대응 소스 6개, 실행 소스 18개 일치(개행 정규화), 분리 표 회귀 검사를 포함한 필수 소스 30개, 329개 JUnit 및 단일/10대 실행 증거를 확인합니다. 713개 ZIP 멤버 검사에서 금지된 로컬 설정/DB/운영 로그 파일은 0개였습니다. 제한된 비밀 패턴 검사이며 모든 종류의 비밀정보 부재를 증명한다는 뜻은 아닙니다. 실제 운영 자료는 사용하지 않았습니다.
+
+태그 이후 변경은 이 검증 기록과 문서뿐이며 실행 코드·의존성은 동일합니다.
 
 ## 공식 근거와 한계
 

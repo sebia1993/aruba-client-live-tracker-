@@ -1,12 +1,14 @@
 # 변경 이력
 
-## 0.3.3 — 2026-10-27 (수정·검증 준비 중)
+## 0.3.3 — 2026-10-27
 
-- MM 장비 발견에서 공식 `show switches` 출력의 장비 식별 표와 후속 Status/Configuration 표가 나뉘는 형식을 처리하기 위한 수정
-- 후속 표의 헤더를 IP 데이터 행으로 해석하여 `SWITCH_TABLE_PARSE_FAILED`가 발생하던 파서 문제를 수정 대상으로 기록
-- 패키지·Windows 빌드·대응 소스 ZIP 버전을 0.3.3으로 구분하며 SSH 신뢰 정책과 의존성은 유지
+- MM 장비 찾기에서 `show switches`가 장비 정보와 Status/Configuration 정보를 별도 표로 출력할 때 발생하던 `SWITCH_TABLE_PARSE_FAILED` 수정
+- 각 표의 행 수와 Total Switches 검증 유지, 잘림·알 수 없는 표·중복 IP·추가 행 거부
+- 고정된 한국어 오류 사유 표시, CLI 원문·셀 값은 진단에 포함하지 않음
+- 단일 표와 TCP loopback SSH 분리 표 발견·선택 WLC 회귀 검사 추가
+- Linux·Windows 329개, 네이티브 EXE 단일/10대, Release 및 공개 다운로드 검증 완료
 
-최종 파서 회귀·Linux/Windows CI·네이티브 EXE·공개 배포 검증은 대기 중입니다. 검증된 최신 배포는 [v0.3.2](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.2)이며, 0.3.3의 결과는 [현재 검증 기록](docs/BUILD_VALIDATION_KO.md)에 기록합니다. 실제 사용자 장비에서의 재확인은 아직 완료하지 않았습니다.
+[검증 기록](docs/BUILD_VALIDATION_KO.md) · [실행 파일](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.3)
 
 ## 0.3.2 — 2026-10-27
 
