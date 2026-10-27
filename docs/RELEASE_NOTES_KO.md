@@ -4,7 +4,7 @@ Aruba Client Live Tracker v0.2.0
 
 Windows x64 실행 ZIP 전체를 압축 해제한 뒤 ArubaClientLiveTracker/ArubaClientLiveTracker.exe를 실행하십시오. Python 설치와 관리자 권한은 필요하지 않습니다. 먼저 데모로 확인하고 함께 제공된 SHA-256을 비교하십시오. 코드 서명되지 않았습니다. LGPL 대응 소스 ZIP도 함께 보관·재배포합니다.
 
-검증 구성: 기존 단일 회귀, 대상 격리·동시성·SSH 풀·승인/취소·통합 보고서·10대 데모 GUI, Windows PyInstaller 빌드와 실제 frozen EXE의 단일/10대 스모크. 이 문서만으로 성공을 주장하지 않으며 정확한 결과는 해당 Actions 실행과 docs/BUILD_VALIDATION_KO.md, 배포의 validation JSON을 확인하십시오.
+검증 결과: [Ubuntu·Windows CI](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40430288521) 성공, 각 환경 테스트 178개 통과. 기존 단일 회귀, 대상 격리·동시성·SSH 풀·승인/취소·통합 보고서·10대 데모 GUI를 포함합니다. Windows PyInstaller 빌드와 실제 frozen EXE의 단일 1대/5건·다중 10대/50건 수집·SQLite 저장·정상 종료를 확인했습니다. EXE 검증은 Qt offscreen이며 Windows 11 실기 화면 검증과 구분합니다. 태그 배포는 동일 검증을 다시 통과한 자산만 게시합니다. 정확한 결과는 해당 Actions 실행과 docs/BUILD_VALIDATION_KO.md, 배포의 validation JSON을 확인하십시오.
 
 미검증: 실제 ArubaOS 8.10 세부 버전/7240XM/AP-535의 명령과 출력 의미, 실장비 부하/장시간 실행, 실제 MM 장애 전환/MD 클러스터 로밍, Windows 11 실기·고배율 화면입니다. 사용자의 장비 검증이 필요합니다.
 

@@ -2,7 +2,7 @@
 
 ArubaOS 8 환경에서 최대 **10대 무선 클라이언트**의 접속 정보, 무선 품질과 AP 변경을 함께 추적하는 한국어 Windows 데스크톱 도구입니다. 기존 단일 추적도 유지합니다. MM의 `Current switch`를 등록된 MD에 매핑하고 해당 MD만 읽기 전용으로 조회합니다. 실행에 클라우드 서비스가 필요하지 않습니다.
 
-실제 Aruba 장비 및 Windows 11 실기 검증은 아직 수행하지 않았습니다. 현재 버전의 자동 테스트·Windows 빌드·EXE 실행 결과는 [검증 기록](docs/BUILD_VALIDATION_KO.md)을 확인하십시오. SSH 실패를 단말 연결 해제로 처리하지 않습니다.
+Ubuntu·Windows CI의 자동 테스트 각 **178개**와 Windows EXE의 단일·10대 데모 스모크가 통과했습니다. 실제 Aruba 장비 및 Windows 11 실기 검증은 아직 수행하지 않았습니다. 현재 버전의 자동 테스트·Windows 빌드·EXE 실행 결과는 [검증 기록](docs/BUILD_VALIDATION_KO.md)을 확인하십시오. SSH 실패를 단말 연결 해제로 처리하지 않습니다.
 
 ![가상 데이터 10대를 동시 추적하는 실제 Qt 대시보드](docs/assets/v020-multi-demo.png)
 
@@ -10,7 +10,7 @@ ArubaOS 8 환경에서 최대 **10대 무선 클라이언트**의 접속 정보,
 
 ## 다운로드와 실행
 
-공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases)에서 v0.2.0 게시 상태와 자산을 확인하십시오. 배포가 게시되기 전에는 다운로드가 제공되지 않을 수 있습니다.
+공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [v0.2.0 Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.2.0)에서 **[Windows 실행 ZIP](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.2.0/ArubaClientLiveTracker_v0.2.0_windows_x64.zip)**, SHA-256 및 대응 소스를 받으십시오. 태그 빌드 검증이 완료되면 파일이 게시됩니다.
 
 1. `ArubaClientLiveTracker_v0.2.0_windows_x64.zip`과 `.sha256`을 받아 해시를 비교합니다.
 2. ZIP 전체를 사용자 폴더에 풀고 `ArubaClientLiveTracker/ArubaClientLiveTracker.exe`를 실행합니다. Python 설치와 관리자 권한은 필요하지 않습니다.

@@ -11,10 +11,12 @@
 | v0.2.0 자동 테스트·정적 검사 | Linux Python 3.12: **178 passed (16.07s)**, Ruff 통과 |
 | 고정 의존성 공지 | PyPI 25개 고정 패키지: 알려진 영향 공지 0건; 내장 네이티브 라이브러리 전체 감사는 아님 |
 | 10대 GUI·스크린샷 | 단일 1대/5건, 다중 10대/50건; 125%·150% offscreen 스모크 통과, 실제 스크린샷 저장 |
-| Windows Actions 빌드·단일/10대 EXE | 실행 결과 기록 대기 |
-| 원격 푸시·Actions·Release | 실행 URL 및 실제 결과 기록 대기 |
+| Windows Actions 빌드·단일/10대 EXE | **성공**. Windows x64 Python 3.12.10 / PyInstaller 6.16.0, frozen 단일 1대/5건·다중 10대/50건 |
+| 원격 푸시·Actions·Release | main 푸시·[CI #40430288521](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40430288521) 성공. 태그 Release는 아래 게시 절차에 따라 확인 |
 
-워크플로와 빌드 스크립트가 존재한다는 사실을 실행 성공으로 취급하지 않습니다. 최종 실행 뒤 아래 증거를 갱신합니다. v0.1.0 테스트 121건과 Wine 스모크는 현재 버전의 결과가 아닙니다.
+검증한 코드 커밋은 `3450bd982d2b4011f63870df90a311253b582ef8`입니다. CI의 Ubuntu 테스트는 178개(20.34초), Windows 테스트는 178개(34.35초), Windows 빌드 스크립트의 재검사는 178개(32.72초) 통과했습니다. 정적 검사와 공개 의존성 공지 검사도 통과했습니다. v0.1.0 테스트 121건과 Wine 스모크는 현재 버전의 결과가 아닙니다.
+
+Windows CI의 실제 EXE 결과는 [단일](validation/v0.2.0/windows-exe-single-smoke.json)과 [10대](validation/v0.2.0/windows-exe-multi-smoke.json)에 보관합니다. 이 증거는 Qt offscreen으로 실제 Windows EXE 프로세스를 실행하여 대상별 수집·SQLite·정상 종료를 확인한 기록입니다. 릴리스 태그는 문서·증거만 추가한 커밋에서 생성하며, Release 워크플로가 다시 테스트·빌드·EXE 검증을 통과해야 자산을 게시합니다.
 
 ## 검증 증거와 산출물
 
