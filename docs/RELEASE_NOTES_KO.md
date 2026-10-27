@@ -12,7 +12,7 @@ Windows x64 ZIP 전체를 새 폴더에 풀고 `ArubaClientLiveTracker/ArubaClie
 
 최종 로컬 전체 708개 검사와 수정본 CI가 통과했습니다. CI의 실제 검증 artifact는 Linux 688개 통과·Windows 전용 20개 제외, Windows 검사 및 빌드 재검사 각각 708개 통과와 source/frozen smoke 6개 성공을 확인했습니다. 장시간 진단은 새 합성 데이터 폴더만 사용하며 실제 SSH는 별도 루프백 장애 시험으로 확인했습니다.
 
-최종 문서를 포함한 ZIP 재검사와 PR·공개 릴리스 전달은 별도로 완료 여부를 확인합니다. GitHub Actions에서 별도로 빌드한 공개 EXE에는 같은 제품 소스·빌드 식별자 확인과 다운로드 후 패키지 실행 검증을 적용하며, 위 로컬 EXE의 장시간 실측과 구분합니다. 게시 상태와 상세 결과는 [최신 검증 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/BUILD_VALIDATION_KO.md), 비식별 실측 요약은 [8시간 검증 증거](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.8/stability-eight-hour.json), 최종 아카이브 해시는 함께 제공되는 `.sha256`에서 확인하십시오. 빌드 당시 pytest XML·EXE JSON은 ZIP의 validation 폴더에 있습니다. [이전 v0.3.7 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.7/BUILD_VALIDATION_KO.md)을 보존했습니다.
+8시간 실측 문서를 포함한 로컬 ZIP도 단일/10대 실행 각각 5회와 소스 manifest 246개 검사를 통과했습니다. GitHub Actions에서 별도로 빌드한 공개 EXE에는 같은 제품 소스·빌드 식별자 확인과 다운로드 후 패키지 실행 검증을 적용하며, 위 로컬 EXE의 장시간 실측과 구분합니다. 게시 상태와 상세 결과는 [최신 검증 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/BUILD_VALIDATION_KO.md), 비식별 실측 요약은 [8시간 검증 증거](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.8/stability-eight-hour.json), 최종 아카이브 해시는 함께 제공되는 `.sha256`에서 확인하십시오. 빌드 당시 pytest XML·EXE JSON은 ZIP의 validation 폴더에 있습니다. [이전 v0.3.7 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.7/BUILD_VALIDATION_KO.md)을 보존했습니다.
 
 Windows에서 진행 파일을 읽고 교체하는 순간의 일시적인 권한 오류는 제한된 시간만 재시도합니다. 앱은 GUI를 막지 않고 다음 tick에서 다시 저장하며, 같은 진행 버전을 다시 읽어도 수집 정지로 오판하지 않습니다. 지속적인 권한 거부나 실제 진행 정지는 계속 실패 처리합니다.
 
