@@ -109,7 +109,7 @@ def bundle(output: Path, cache: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path,
-                        default=Path("dist/ArubaClientLiveTracker_v0.3.7_third_party_sources.zip"))
+                        default=Path("dist/ArubaClientLiveTracker_v0.3.8_third_party_sources.zip"))
     parser.add_argument("--cache", type=Path, default=Path("build/upstream-sources"))
     args = parser.parse_args()
     bundle(args.output, args.cache)

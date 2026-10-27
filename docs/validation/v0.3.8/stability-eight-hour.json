@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "qualification": "eight-hour-passed",
+  "verified_at": "2026-10-27T20:09:50.869720+00:00",
+  "scope": "Native Windows frozen EXE, 10 synthetic targets; real SSH is separate loopback evidence. Does not establish live Aruba, physical power loss, or OS DNS shutdown latency.",
+  "implementation_commit": "5f25a053f40edd1427e10b56996b018b29bb4e6f",
+  "build_id": "0.3.8-506867ece370",
+  "source_sha256": "506867ece370eae4e485c3f2a34307b8c92af611f1c36c2c7166c3b11e57a55d",
+  "tested_exe_sha256": "ece8dcb34b78d11b2d48ee1895c5f2ae84911f194f82f456e30d289264d4d9a3",
+  "run_id": "49c3795e3c7a401bb070234d4d05d5ba",
+  "started_at": "2026-10-27T12:04:16.813411+00:00",
+  "finished_at": "2026-10-27T20:04:15.365561+00:00",
+  "elapsed_clock": "time.monotonic",
+  "sampler_elapsed_seconds": 28801.733999999997,
+  "app_elapsed_seconds": 28800.515000000014,
+  "exit_code": 0,
+  "native_qt_platform": "windows",
+  "target_observations": {
+    "1": 2836,
+    "2": 2836,
+    "3": 2836,
+    "4": 2836,
+    "5": 2836,
+    "6": 2836,
+    "7": 2836,
+    "8": 2836,
+    "9": 2836,
+    "10": 2836
+  },
+  "observation_count": 28360,
+  "db_integrity": "ok",
+  "foreign_key_violations": 0,
+  "closed_sessions": 10,
+  "unclosed_sessions": 0,
+  "max_heartbeat_gap_seconds": 1.1400000000139698,
+  "max_collection_gap_seconds": 11.125,
+  "persisted_max_gap_seconds": 11.000020802021027,
+  "persisted_start_gap_seconds": 0.26955294609069824,
+  "persisted_end_gap_seconds": 10.245447158813477,
+  "resources": {
+    "warmup_seconds": 600.0,
+    "comparison_window_seconds": 300.0,
+    "sample_count": 2881,
+    "required_samples": 2592,
+    "baseline_sample_count": 30,
+    "final_sample_count": 31,
+    "thresholds": {
+      "private_bytes_absolute": 67108864,
+      "private_bytes_ratio": 0.25,
+      "handles": 50,
+      "threads": 4
+    },
+    "failures": [],
+    "baseline": {
+      "private_bytes": 73848832.0,
+      "working_set_bytes": 125237248.0,
+      "handles": 1392.5,
+      "threads": 6.0
+    },
+    "final": {
+      "private_bytes": 77815808,
+      "working_set_bytes": 128880640,
+      "handles": 1400,
+      "threads": 4
+    },
+    "growth": {
+      "private_bytes": 3966976.0,
+      "working_set_bytes": 3643392.0,
+      "handles": 7.5,
+      "threads": -2.0
+    }
+  },
+  "max_resource_gap_seconds": 10.14100000000326,
+  "clock_adjustment": {
+    "provider": "Microsoft-Windows-Kernel-General",
+    "event_id": 1,
+    "old_time": "2026-10-27T16:13:26.8237873Z",
+    "new_time": "2026-10-27T16:13:23.6562245Z",
+    "delta_ms": -3167,
+    "note": "UTC labels moved backwards; both independent monotonic elapsed measurements exceeded 28800 seconds."
+  },
+  "evidence_sha256": {
+    "result.json": "e06387fa57397fca689e4bb9226d40edba1a173da706c76ac5d8cb496016458c",
+    "result.progress.json": "0ff147971aef002cc97e74412c1af612e2433c6a566712d1adf1221568c4da0d",
+    "summary.json": "cfed060aa4942b4df7fa12cb9008d6618cb3bfb72fed5c8edf3d256a5c69f4a1",
+    "resources.jsonl": "2a221c6a1fc007b65650388930bf83d1cf186733ef800bd18bd6454c71b7f51a",
+    "data/history.sqlite3": "f0582d18db007d9d339e743dcd6c45323a0523f89b9d7ed0386a13ebd7bec8e1"
+  },
+  "previous_failed_runs_not_combined": true,
+  "ci": {
+    "run_id": 40501149055,
+    "head_sha": "8bf919c50d5ba99eb9beca4a5132e6a9fa6b4502",
+    "linux_passed": 688,
+    "linux_platform_skipped": 20,
+    "windows_passed": 708,
+    "windows_build_passed": 708,
+    "source_and_frozen_smokes_passed": 6
+  },
+  "publication_boundary": "This exact EXE was tested for eight hours locally. A separately built public EXE must match product fingerprint and pass public-package checks; source equivalence does not establish eight-hour execution of different binary bytes."
+}

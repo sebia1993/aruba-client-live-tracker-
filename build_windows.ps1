@@ -1,4 +1,4 @@
-﻿param([string]$Version = "0.3.7", [switch]$SkipInstall)
+﻿param([string]$Version = "0.3.8", [switch]$SkipInstall)
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 if ($PSVersionTable.PSVersion.Major -ge 6 -and -not $IsWindows) { throw "Windows에서 실행하십시오." }

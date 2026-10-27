@@ -24,7 +24,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--screenshot", type=Path, help="실행 화면 PNG 저장 경로")
     parser.add_argument("--data-dir", type=Path, help="로컬 데이터 경로")
     parser.add_argument("--smoke-result", type=Path, help="검증 결과 JSON 저장 경로")
+    parser.add_argument("--soak-seconds", type=int, help="새 데이터 폴더에서 10대 데모 연속 검증(1~86400초)")
     args = parser.parse_args(argv)
+    from .soak import validate_soak_args
+    validate_soak_args(parser, args)
     app = QApplication.instance() or QApplication(sys.argv[:1])
     translator = QTranslator(app)
     translator.load("qtbase_ko", QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath))
@@ -50,9 +53,9 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, sqlite3.Error):
         reason = "로컬 데이터 폴더 또는 이력 파일을 열 수 없습니다. 폴더 접근 권한과 저장 공간을 확인하세요. 기존 파일을 보존하고 다른 데이터 폴더로 실행할 수 있습니다."
         write_result(6, reason)
-        if not args.smoke_test and app.platformName() not in {'offscreen', 'minimal'}:
+        if not args.smoke_test and not args.soak_seconds and app.platformName() not in {'offscreen', 'minimal'}:
             QMessageBox.critical(None, "프로그램 시작 실패", reason)
-        elif not args.smoke_test and QApplication.instance() is app and argv is not None:
+        elif not args.smoke_test and not args.soak_seconds and QApplication.instance() is app and argv is not None:
             # Embedded invocations can provide their own dialog presentation.
             QMessageBox.critical(None, "프로그램 시작 실패", reason)
         if temporary:
@@ -78,6 +81,12 @@ def main(argv: list[str] | None = None) -> int:
             if not window.close() or not window._closed:
                 code = 8
                 reason = 'HISTORY_SHUTDOWN_FAILED: 이력 종료 기록 저장 또는 DB 닫기에 실패했습니다. 저장 공간과 권한을 확인하세요.'
+            if args.soak_seconds and code == 0:
+                from .soak import verify_soak_database
+                try:
+                    verify_soak_database(window.store.path, metrics)
+                except (OSError, sqlite3.Error, ValueError):
+                    code, reason = 9, 'SOAK_DB_VERIFICATION_FAILED'
             if not write_result(code, reason, metrics):
                 code = 7
             app.exit(code)
@@ -140,7 +149,17 @@ def main(argv: list[str] | None = None) -> int:
         else:
             window.start_tracking()
 
-    if args.smoke_test:
+    if args.soak_seconds:
+        from .soak import SoakMonitor
+        def finish_soak(code, reason, values):
+            metrics.update(values)
+            finish(code, reason)
+        soak = SoakMonitor(window, args.soak_seconds, args.smoke_result, finish_soak)
+        window.interval.setCurrentIndex(window.interval.findData(10))
+        window.scenario.setCurrentIndex(window.scenario.findData('normal'))
+        QTimer.singleShot(0, begin)
+        soak.start()
+    elif args.smoke_test:
         window.poll_applied.connect(verify)
         QTimer.singleShot(0, begin)
         refresh_timer.start()
@@ -152,6 +171,10 @@ def main(argv: list[str] | None = None) -> int:
                 QTimer.singleShot(200, lambda: window.grab().save(str(args.screenshot), "PNG"))
             window.poll_applied.connect(snapshot)
     result = app.exec()
+    if args.soak_seconds and not completed:
+        metrics.update(soak.snapshot())
+        write_result(9, 'SOAK_INTERRUPTED: run ended before the requested duration', metrics)
+        result = 9
     if temporary:
         temporary.cleanup()
     return result

@@ -294,7 +294,11 @@ class SSHSession:
         client = paramiko.SSHClient()
         with self._state_lock:
             self._client = client
-        keys = _known_keys(self.known_hosts)  # Validate before opening a network connection.
+        # Serialize preflight reads with the atomic writer too: on Windows a
+        # concurrent replacement can deny opening an otherwise valid key file.
+        with _trust_lock(self.known_hosts, cancel, deadline):
+            keys = _known_keys(self.known_hosts)
+        self._check(cancel, deadline)
         endpoint = self.device.host if self.device.port == 22 else f"[{self.device.host}]:{self.device.port}"
         known = keys.lookup(endpoint)
 
