@@ -89,4 +89,18 @@ v0.3.5는 SSH 응답에서 전체 안내문과 인접한 화면 지우기 제어
 
 ## 사용자 장비에서 확인할 항목
 
+2026-10-27 예방 점검 중 [show ap association 공식 Description/Example](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-ap-assoc.htm)을 다시 대조했다. `A`는 현재 활성 연결이고 다른 대소문자 플래그는 단말 기능을 나타낸다. 헤더가 있어도 대상 행의 Flags 셀이 비거나 문서에 없는 값을 포함하면 해제로 확정하지 않고 조회 실패/연결 확인 불가로 처리한다. 문서에 나온 `W` 같은 비활성 행은 그대로 지원한다. 새 플래그·빈 셀의 실장비 의미는 공식 근거 없이 추정하지 않는다. 합성 collector→Tracker 회귀는 빈 값·기호·알 수 없는 텍스트가 해제/재연결/로밍 이벤트를 만들지 않는지 확인한다.
+
+### 2026-10-27 Windows 발견 오류 재현과 구조 진단
+
+이번 로컬 작업에서 공식 [show switches](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-switches.htm)의 Description, Example, Command Information과 [paging](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/paging.htm)의 Description을 직접 다시 확인했다. 식별 표 뒤에 상태 표가 이어지는 열 구성, Mobility Conductor 실행 위치와 세션별 기본 paging을 대조했다. [show ap arm status 예시](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-ap-arm-status.htm)의 전체 페이지 안내문도 다시 확인했으며 이 명령을 수집 allowlist에 추가하지 않았다. [ArubaOS v8.10.0.10 Release Notes](https://arubanetworking.hpe.com/techdocs/ArubaOS-8.x-Books/Release-Notes/810/ArubaOS-8%2E10%2E0%2E10-Release-Notes.pdf) 8–9쪽의 SSH 변경 사항과 Conductor/7210/7240XM 지원 범위를 확인했다. CLI Reference와 User Guide PDF는 이번 재조회에서 도구 크기 제한 또는 사이트 접근 거부로 전체를 다시 읽지 못했으므로 앞 절의 PDF 페이지 근거는 이전 검토 기록이다. CLI Bank의 과거 버전 예시를 8.10.0.10의 실제 SSH 바이트와 동일시하지 않는다.
+
+최신 `출력 9행 · IP 열 길이 0 · IPv6 열 길이 0`과 같은 문구는 합성 행의 주소 두 셀을 비워 재현했다. 이는 빈 셀도 종전 코드가 IP 형식 오류로 묶어 안내한다는 증거이며, 사용자의 실장비에서 두 셀이 비어진 원인을 입증하지 않는다. 이번 파서는 `ADDRESS_CELL_EMPTY`, `ROW_TOO_SHORT`, `ADDRESS_INVALID`, `TABLE_LAYOUT`, `OUTPUT_INCOMPLETE`, `COUNT_MISMATCH`, `UNKNOWN_TABLE`, `UNKNOWN_ROW`로 확인된 실패 유형을 구분한다. 빈 주소 행을 삭제하거나 잘못된 IPv4를 IPv6로 덮어쓰지 않는다.
+
+별도 합성 SSH 시험에서 첫 줄부터 들여쓰기된 표를 받을 때 `strip()`이 첫 머리글의 공백만 제거하여 구분선과 열 시작 위치가 달라지는 문제를 확인했다. 빈 줄만 제거하도록 수정해 각 행의 들여쓰기를 유지한다. 현재 표와 같은 열 구성의 반복 머리글은 바로 다음 구분선을 검증한 뒤 동일 표를 계속 읽으며, 누적 행 수·중복 주소·완료 건수 검사는 유지한다. 반복 머리글과 페이지 위치는 가상 장애 경계이며 공식 문서가 해당 모델의 실제 반복 방식을 보증한 것은 아니다.
+
+오류 상세의 구조 진단에는 수집기/파서 버전, 수신·정규화·파싱 행 수, 실패 행의 길이·선행 공백·공백 구간 수, 문자/숫자/기타 문자 개수, 공식 열 이름과 0부터 시작하는 `[시작:끝)` 위치, 선언/식별/상태 건수, 반복 머리글과 완료 표식 개수가 들어간다. 실패 행 번호는 명령 에코와 SSH 프롬프트를 제거한 정규화 출력의 첫 행을 1로 센다. 전체 표 검증에서 아직 특정 행을 선택하지 못했으면 0으로 표시한다. 수신 통계는 에코/프롬프트를 포함하고, CR/LF/ANSI/백스페이스/페이지 안내/계속 요청 개수와 프롬프트·종료 상태를 기록한다. 중단된 수신의 정규화 행 수 0은 완성된 파서 입력이 없다는 뜻이다. 원문, 주소 셀 값, 장비명, 계정, 비밀번호는 이 구조 메시지에 넣지 않으며 자동 파일 저장이나 업로드도 하지 않는다. 화면의 기존 장비명/endpoint는 로컬 연결 대상을 구별하기 위한 별도 항목이므로 공유 시에는 구조 메시지만 사용한다.
+
+회귀 검사는 RFC 5737/3849 가상 자료를 사용한다. 실제 Paramiko SSH를 루프백에만 연결하여 머리글/구분선 사이 페이지 경계, 식별·상태 머리글 반복, 후보 목록, 사용자가 명시적으로 선택한 MD의 자기 식별과 매핑 갱신까지 검증한다. 발견된 운영 주소로 자동 접속하거나 새 명령 변형·설정 변경을 실행하지 않는다. **사용자의 최신 오류 원인과 Aruba 실장비 발견·선택 검사 성공은 검증 대기다.**
+
 발견 시 seed와 선택한 장비의 읽기 전용 명령 권한·역할·주소를 먼저 확인합니다. 처음에는 60초 주기로 대상 MAC 하나를 조회하여 MM Primary/Standby, Current switch 매핑, MD 사용자 결과와 AP 소유 관계를 확인한다. 각 명령의 거부 여부·필터 결과·필드 단위와 수집 시간을 확인한 후 15초로 낮춘다. AP-535 및 7240XM의 실제 카운터 의미, 클러스터 UAC/AAC 차이, 시계/시간대, dormant/비활성 행, 읽기 권한, 출력 폭·페이지 처리, 절전 단말의 오래된 마지막 패킷 값은 운영 환경에서 검증해야 한다. 실제 출력 원문을 공개 이슈나 저장소에 첨부하지 않는다.

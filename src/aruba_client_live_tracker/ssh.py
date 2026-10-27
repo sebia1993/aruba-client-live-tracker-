@@ -37,9 +37,14 @@ INITIAL_CONNECTION_TIMEOUT = 60.0
 CONNECT_TIMEOUT = 10.0
 MAX_KNOWN_HOSTS_BYTES = 1024 * 1024
 _MAX_PAGES = 200
+SSH_READER_VERSION = '2'
 _KEYS_LOCK = threading.RLock()
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _PROMPT = re.compile(r"^(?:\([^\r\n]{1,80}\)\s*)?[\^*]{0,2}\s*(?:\[[^\r\n]{1,80}\]\s*)?[A-Za-z0-9._:*^ -]{0,80}[#>]$")
+# AOS 8.10 CLI Reference p. 9: ^ and * describe configuration/crash state.
+# Only those status flags may vary; hostname, hierarchy and privilege must match.
+_PROMPT_STATUS = re.compile(
+    r"^(\([^\r\n]{1,80}\))[ \t]*(?:\^?\*?|\*\^)[ \t]*(\[[^\r\n]{1,80}\])[ \t]*([#>])$")
 # AOS 8.10 CLI Reference pp. 1629/3361 includes the entire menu after
 # --More--. Its help text must never become a row in a collected CLI table.
 _PAGING = re.compile(
@@ -61,6 +66,14 @@ class SSHError(RuntimeError):
 
 def fingerprint_sha256(key: paramiko.PKey) -> str:
     return "SHA256:" + base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip("=")
+
+
+def _same_prompt(actual: str, expected: str | None) -> bool:
+    if actual == expected:
+        return True
+    before = _PROMPT_STATUS.fullmatch(expected or "")
+    after = _PROMPT_STATUS.fullmatch(actual)
+    return bool(before and after and before.groups() == after.groups())
 
 
 def _known_keys(path: Path) -> paramiko.HostKeys:
@@ -249,6 +262,7 @@ class SSHSession:
         self._prompt: str | None = None
         self._operation_lock = threading.Lock()
         self._state_lock = threading.RLock()
+        self.last_read_structure: dict[str, int | str] = {}
 
     @staticmethod
     def _check(cancel: threading.Event | None, deadline: float) -> None:
@@ -265,10 +279,17 @@ class SSHSession:
 
     def _connect(self, cancel: threading.Event | None, deadline: float) -> None:
         self._check(cancel, deadline)
-        if self._client is not None and self._channel is not None:
-            transport = self._client.get_transport()
-            if transport is not None and transport.is_active() and not self._channel.closed:
-                return
+        with self._state_lock:
+            client, channel = self._client, self._channel
+        if client is not None and channel is not None:
+            transport = client.get_transport()
+            reusable = transport is not None and transport.is_active() and not channel.closed
+            with self._state_lock:
+                if self._client is not client or self._channel is not channel:
+                    self._check(cancel, deadline)
+                    raise SSHError("CONNECTION_CLOSED", "SSH 연결이 종료되었습니다.", retryable=True)
+                if reusable:
+                    return
         self.close()
         client = paramiko.SSHClient()
         with self._state_lock:
@@ -310,43 +331,71 @@ class SSHSession:
         pages = 0
         paging_at = -1
         stable_since: float | None = None
-        while True:
-            self._check(cancel, deadline)
-            channel = self._channel
-            if channel is None or channel.closed:
-                raise SSHError("CONNECTION_CLOSED", "SSH 연결이 종료되었습니다.", retryable=True)
-            if channel.recv_ready():
-                chunk = channel.recv(65536)
-                if not chunk:
-                    raise SSHError("CONNECTION_CLOSED", "SSH 응답이 중단되었습니다.", retryable=True)
-                data.extend(chunk)
-                if len(data) > MAX_OUTPUT_BYTES:
-                    raise SSHError("OUTPUT_LIMIT", "SSH 출력량 제한을 초과했습니다. 필터와 CLI 형식을 확인하십시오.")
-                stable_since = None
-            terminal_text = _ANSI.sub("", data.decode("utf-8", errors="replace"))
-            # CLI pagination may erase its marker with backspaces. Do not erase
-            # raw observation bytes; only clean these terminal controls locally.
-            text = terminal_text.replace("\r", "").replace("\x08", "")
-            matches = list(_PAGING.finditer(text[-200:]))
-            if matches:
-                offset = max(0, len(text) - 200) + matches[-1].start()
-                if offset > paging_at:
-                    paging_at = offset
-                    pages += 1
-                    if pages > _MAX_PAGES:
-                        raise SSHError("OUTPUT_LIMIT", "SSH 페이지 수 제한을 초과했습니다.")
-                    channel.sendall(" ")
-            last = text.rstrip().split("\n")[-1].strip() if text.strip() else ""
-            prompt_seen = bool(_PROMPT.fullmatch(last)) if initial else last == self._prompt
-            if prompt_seen:
-                if stable_since is None:
-                    stable_since = time.monotonic()
-                elif time.monotonic() - stable_since >= 0.08:
-                    if initial:
-                        self._prompt = last
-                    body = terminal_text.rstrip().rsplit("\n", 1)[0] if "\n" in terminal_text.rstrip() else ""
-                    return _PAGING_OUTPUT.sub("", body).replace("\r", "").replace("\x08", "")
-            time.sleep(0.01)
+        prompt_seen = False
+        outcome = 'interrupted'
+        normalized = ''
+        try:
+            while True:
+                self._check(cancel, deadline)
+                channel = self._channel
+                if channel is None or channel.closed:
+                    raise SSHError("CONNECTION_CLOSED", "SSH 연결이 종료되었습니다.", retryable=True)
+                if channel.recv_ready():
+                    chunk = channel.recv(65536)
+                    if not chunk:
+                        raise SSHError("CONNECTION_CLOSED", "SSH 응답이 중단되었습니다.", retryable=True)
+                    data.extend(chunk)
+                    if len(data) > MAX_OUTPUT_BYTES:
+                        raise SSHError("OUTPUT_LIMIT", "SSH 출력량 제한을 초과했습니다. 필터와 CLI 형식을 확인하십시오.")
+                    stable_since = None
+                terminal_text = _ANSI.sub("", data.decode("utf-8", errors="replace"))
+                # Preserve raw observation bytes while handling terminal controls locally.
+                text = terminal_text.replace("\r", "").replace("\x08", "")
+                matches = list(_PAGING.finditer(text[-200:]))
+                if matches:
+                    offset = max(0, len(text) - 200) + matches[-1].start()
+                    if offset > paging_at:
+                        paging_at = offset
+                        pages += 1
+                        if pages > _MAX_PAGES:
+                            raise SSHError("OUTPUT_LIMIT", "SSH 페이지 수 제한을 초과했습니다.")
+                        channel.sendall(" ")
+                last = text.rstrip().split("\n")[-1].strip() if text.strip() else ""
+                prompt_seen = bool(_PROMPT.fullmatch(last)) if initial else _same_prompt(last, self._prompt)
+                if prompt_seen:
+                    if stable_since is None:
+                        stable_since = time.monotonic()
+                    elif time.monotonic() - stable_since >= 0.08:
+                        if initial:
+                            self._prompt = last
+                        body = terminal_text.rstrip().rsplit("\n", 1)[0] if "\n" in terminal_text.rstrip() else ""
+                        normalized = _PAGING_OUTPUT.sub("", body).replace("\r", "").replace("\x08", "")
+                        outcome = 'complete'
+                        return normalized
+                time.sleep(0.01)
+        except SSHError as exc:
+            outcome = exc.code
+            raise
+        finally:
+            raw = data.decode('utf-8', errors='replace')
+            self.last_read_structure = {
+                'received_lines': len(raw.splitlines()), 'normalized_lines': len(normalized.splitlines()),
+                'bytes': len(data), 'cr': raw.count('\r'), 'lf': raw.count('\n'),
+                'ansi': len(_ANSI.findall(raw)), 'backspace': raw.count('\x08'),
+                'pager': len(_PAGING.findall(_ANSI.sub('', raw))), 'page_requests': pages,
+                'prompt': int(prompt_seen), 'outcome': outcome,
+            }
+
+    def read_structure_summary(self) -> str:
+        """No peer names, addresses, command output or credentials are retained."""
+        values = self.last_read_structure
+        if not values:
+            return ''
+        return (f'수집기={SSH_READER_VERSION} · 수신 행={values["received_lines"]} · '
+                f'정규화 행={values["normalized_lines"]} · 바이트={values["bytes"]} · '
+                f'CR={values["cr"]} · LF={values["lf"]} · ANSI={values["ansi"]} · '
+                f'BS={values["backspace"]} · 페이지 안내={values["pager"]} · '
+                f'페이지 요청={values["page_requests"]} · 프롬프트={values["prompt"]} · 종료={values["outcome"]}')
 
     def run(self, command: str, cancel: threading.Event | None = None,
             deadline: float | None = None) -> str:
@@ -360,6 +409,7 @@ class SSHSession:
         watcher = threading.Thread(target=self._watch, args=(done, cancel, expires), daemon=True)
         watcher.start()
         try:
+            self.last_read_structure = {}
             self._connect(cancel, expires)
             self._check(cancel, expires)
             channel = self._channel
@@ -371,7 +421,15 @@ class SSHSession:
             lines = output.splitlines()
             if lines and lines[0].strip() == command:
                 lines.pop(0)
-            return "\n".join(lines).strip()
+            # Removing leading spaces changes only the first header's origin,
+            # while its separator/data retain theirs. Trim blank lines only.
+            while lines and not lines[0].strip():
+                lines.pop(0)
+            while lines and not lines[-1].strip():
+                lines.pop()
+            output = "\n".join(lines)
+            self.last_read_structure['normalized_lines'] = len(lines)
+            return output
         except SSHError:
             self.close()
             raise
@@ -380,6 +438,7 @@ class SSHSession:
             raise SSHError("HOST_KEY_CHANGED", "SSH 서버 키가 변경되어 접속을 차단했습니다. 관리자에게 확인하십시오.") from exc
         except paramiko.AuthenticationException as exc:
             self.close()
+            self._check(cancel, expires)
             raise SSHError("AUTH_FAILED", "SSH 인증에 실패했습니다. 계정과 조회 권한을 확인하십시오.") from exc
         except (OSError, EOFError, socket.timeout, paramiko.SSHException) as exc:
             self.close()
@@ -396,13 +455,17 @@ class SSHSession:
             self._channel = None
             self._client = None
             self._prompt = None
-        if channel is not None:
-            try:
-                channel.close()
-            except (OSError, EOFError):
-                pass
-        if client is not None:
-            try:
-                client.close()
-            except (OSError, EOFError):
-                pass
+        # Channel.close sends protocol messages and can wait for rekey. Abort
+        # the transport first so cancellation/cleanup never waits for that send.
+        try:
+            if client is not None:
+                try:
+                    client.close()
+                except (OSError, EOFError, paramiko.SSHException):
+                    pass
+        finally:
+            if channel is not None:
+                try:
+                    channel.close()
+                except (OSError, EOFError, paramiko.SSHException):
+                    pass

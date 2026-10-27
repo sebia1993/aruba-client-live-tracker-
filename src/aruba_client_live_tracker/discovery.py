@@ -25,6 +25,12 @@ class DiscoveryResult:
     collected_at: str = field(default_factory=utc_now)
 
 
+class _DiscoveryOutputs(dict[str, str]):
+    def __init__(self):
+        super().__init__()
+        self.structures: dict[str, str] = {}
+
+
 class _Cancellation(threading.Event):
     def __init__(self, external: threading.Event | None, closed: threading.Event):
         super().__init__()
@@ -71,6 +77,14 @@ def _mappings(identity: DeviceIdentity | None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(value for value in (identity.switch_ip, identity.hostname) if value))
 
 
+def _mapping_key(value: str) -> str:
+    """Match the collector's IP equivalence without changing explicit aliases."""
+    try:
+        return str(ip_address(value))
+    except ValueError:
+        return value
+
+
 def _join_identity(old: DeviceIdentity | None, new: DeviceIdentity) -> DeviceIdentity:
     if old is None:
         return new
@@ -91,7 +105,7 @@ class DiscoveryService:
     def _read(self, device: Device, commands: tuple[str, ...], cancel: threading.Event | None):
         """Serialize a whole identity operation per endpoint, with two sessions total."""
         linked = _Cancellation(cancel, self._closed)
-        outputs: dict[str, str] = {}
+        outputs = _DiscoveryOutputs()
         diagnostics: list[Diagnostic] = []
         endpoint = _endpoint(device)
         with self._lock:
@@ -117,6 +131,8 @@ class DiscoveryService:
                 if linked.is_set():
                     raise SSHError('CANCELLED', '조회가 취소되었습니다.')
                 output = session.run(command, cancel=linked)
+                if isinstance(session, SSHSession) and hasattr(session, 'read_structure_summary'):
+                    outputs.structures[command] = session.read_structure_summary()
                 try:
                     reject_errors(output)
                 except UnsupportedCommand:
@@ -128,7 +144,12 @@ class DiscoveryService:
                 else:
                     outputs[command] = output
         except SSHError as exc:
-            diagnostics.append(_ssh_diagnostic(device, exc, command))
+            item = _ssh_diagnostic(device, exc, command)
+            if command == 'show switches' and session is not None and hasattr(session, 'read_structure_summary'):
+                structure = session.read_structure_summary()
+                if structure:
+                    item.message += '\n수집 진단: ' + structure
+            diagnostics.append(item)
         except Exception:
             diagnostics.append(_diagnostic(device, 'connect', 'DISCOVERY_FAILED',
                                            '장비 조회를 완료하지 못했습니다.', command))
@@ -163,8 +184,12 @@ class DiscoveryService:
             except ParseError as exc:
                 # Parser reasons include only fixed text and structural counts,
                 # never remote rows or field values. Do not append raw CLI.
+                structure = getattr(outputs, 'structures', {}).get('show switches', '')
+                message = f'장비 목록을 해석하지 못했습니다. {exc}'
+                if structure:
+                    message += '\n수집 진단: ' + structure
                 diagnostics.append(_diagnostic(seed, 'discovery', 'SWITCH_TABLE_PARSE_FAILED',
-                    f'장비 목록을 해석하지 못했습니다. {exc}', 'show switches'))
+                    message, 'show switches'))
         # An endpoint match is definitive. Otherwise self identity must select
         # exactly one row; conflicts across address and hostname remain unresolved.
         matches = [row for row in rows if row.switch_ip == _endpoint(seed)[0]]
@@ -229,6 +254,11 @@ class DiscoveryService:
             diagnostics.append(_diagnostic(device, 'identity', 'ROLE_CONFLICT',
                 '등록된 장비 유형과 자체 역할이 다릅니다. 수동 설정을 확인하세요.'))
         mappings = () if stale_identity and device.origin == 'discovered' else device.mappings
+        if (device.origin == 'discovered' and kind == 'MD' and previous_identity
+                and identity.hostname and identity.hostname != previous_identity.hostname):
+            old_aliases = {_mapping_key(alias) for alias in _mappings(previous_identity)}
+            explicit = tuple(alias for alias in mappings if _mapping_key(alias) not in old_aliases)
+            mappings = tuple(dict.fromkeys((*explicit, *_mappings(combined))))
         result = replace(device, identity=combined, kind=kind,
                          mappings=mappings or (_mappings(combined) if kind == 'MD' else ()))
         if kind == 'AUTO':
@@ -317,22 +347,24 @@ def merge_discovered(existing: list[Device], discovered: list[Device]) -> tuple[
     # The active collector also matches each MD's SSH host. Automatic aliases
     # must never claim another endpoint or shared hostname arbitrarily.
     alias_owners: dict[str, set[tuple[str, int]]] = {}
-    manual_mappings = {_endpoint(device): set(device.mappings) for device in existing if device.origin == 'manual'}
+    manual_mappings = {_endpoint(device): {_mapping_key(alias) for alias in device.mappings}
+                       for device in existing if device.origin == 'manual'}
     for device in merged:
         if device.kind == 'MD':
             for alias in (device.host, *device.mappings):
-                alias_owners.setdefault(alias, set()).add(_endpoint(device))
+                alias_owners.setdefault(_mapping_key(alias), set()).add(_endpoint(device))
     for index, device in enumerate(merged):
         if device.kind != 'MD':
             continue
         endpoint = _endpoint(device)
-        automatic = set(_mappings(device.identity))
+        automatic = {_mapping_key(alias) for alias in _mappings(device.identity)}
         if device.origin == 'manual':
-            automatic -= manual_mappings.get(endpoint, set(device.mappings))
-        conflicted = {alias for alias in device.mappings if len(alias_owners.get(alias, ())) > 1}
+            automatic -= manual_mappings.get(endpoint, {_mapping_key(alias) for alias in device.mappings})
+        conflicted = {_mapping_key(alias) for alias in device.mappings
+                      if len(alias_owners.get(_mapping_key(alias), ())) > 1}
         if conflicted:
             diagnostics.append(_diagnostic(device, 'md_mapping', 'MAPPING_CONFLICT',
                 '여러 WLC가 같은 매핑을 사용합니다. 충돌한 자동 별칭을 제외하고 수동 매핑을 보존했습니다.', severity='주의'))
             merged[index] = replace(device, mappings=tuple(alias for alias in device.mappings
-                                                           if alias not in conflicted or alias not in automatic))
+                if _mapping_key(alias) not in conflicted or _mapping_key(alias) not in automatic))
     return merged, diagnostics

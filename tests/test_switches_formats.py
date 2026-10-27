@@ -146,3 +146,89 @@ def test_ipv6_row_does_not_bypass_incomplete_table_checks():
     identities[0][:2] = ['None', '2001:db8::10']
     with pytest.raises(ParseError, match='실제 행 수'):
         parse_switches(switches_output(identities=identities, total=7))
+
+
+def test_flat_table_row_truncated_before_declared_status_is_rejected():
+    lines = table(IDENTITY_HEADERS + STATUS_HEADERS, [IDENTITY_ROWS[2] + STATUS_ROWS[2]]).splitlines()
+    lines[2] = lines[2][:lines[0].index('Status')].rstrip()
+    with pytest.raises(ParseError, match='상태 행'):
+        parse_switches('\n'.join(lines) + '\nTotal Switches:1')
+
+
+@pytest.mark.parametrize('headers,values,index,value', [
+    (STATUS_HEADERS, STATUS_ROWS[0], 0, ''),
+    (STATUS_HEADERS, STATUS_ROWS[0], 1, ''),
+    (STATUS_HEADERS, STATUS_ROWS[0], 2, ''),
+    (STATUS_HEADERS, STATUS_ROWS[0], 3, ''),
+    (STATUS_HEADERS, STATUS_ROWS[0], 0, '192.0.2.99'),
+    (STATUS_HEADERS, STATUS_ROWS[0], 2, 'unknown'),
+    (STATUS_HEADERS, STATUS_ROWS[0], 3, 'unknown'),
+    (DEBUG_HEADERS, DEBUG_ROWS[0], 1, ''),
+    (DEBUG_HEADERS, DEBUG_ROWS[0], 2, ''),
+    (DEBUG_HEADERS, DEBUG_ROWS[0], 4, ''),
+    (DEBUG_HEADERS, DEBUG_ROWS[0], 5, ''),
+])
+def test_flat_declared_status_columns_require_complete_valid_cells(headers, values, index, value):
+    status = values[:]
+    status[index] = value
+    text = table(IDENTITY_HEADERS + headers, [IDENTITY_ROWS[2] + status]) + '\nTotal Switches:1'
+    with pytest.raises(ParseError, match='상태 행'):
+        parse_switches(text)
+
+
+@pytest.mark.parametrize('block', ['identity', 'status'])
+def test_repeated_page_header_preserves_rows_and_full_block_counts(block):
+    """Synthetic paging placement; only the official column sets are documented."""
+    text = switches_output()
+    headers = IDENTITY_HEADERS if block == 'identity' else STATUS_HEADERS
+    values = IDENTITY_ROWS if block == 'identity' else STATUS_ROWS
+    lines = table(headers, values).splitlines()
+    repeated = '\n'.join([*lines[:3], *lines[:2], *lines[3:]])
+    text = text.replace('\n'.join(lines), repeated)
+    assert [row.switch_ip for row in parse_switches(text)] == [
+        '192.0.2.10', '192.0.2.11', '192.0.2.20']
+
+
+@pytest.mark.parametrize('failure', ['empty_addresses', 'short_row', 'invalid_address'])
+def test_line_nine_failure_distinguishes_structure_from_invalid_address_without_values(failure):
+    lines = switches_output().splitlines()
+    # Pad with a known blank before the third identity row, putting it at line 9.
+    lines.insert(7, '')
+    header = lines[3]
+    if failure == 'empty_addresses':
+        lines[8] = ' ' * header.index('Name') + lines[8][header.index('Name'):]
+        expected = 'ADDRESS_CELL_EMPTY'
+    elif failure == 'short_row':
+        lines[8] = 'x'
+        expected = 'ROW_TOO_SHORT'
+    else:
+        lines[8] = lines[8].replace('192.0.2.20', '999.0.2.20')
+        expected = 'ADDRESS_INVALID'
+    with pytest.raises(ParseError) as caught:
+        parse_switches('\n'.join(lines))
+    message = str(caught.value)
+    assert expected in message
+    assert '출력 9행' in message
+    assert '기준=정규화 출력 1부터' in message
+    assert '표=identity' in message and '식별 행=2' in message
+    assert '선언=3' in message and '완료 표식=1' in message
+    assert 'IP Address[' in message and 'IPv6 Address[' in message
+    if failure == 'empty_addresses':
+        assert 'IP 열 길이 0' in message and 'IPv6 열 길이 0' in message
+        assert 'IP 형식이 올바르지 않습니다' not in message
+    for value in ('LAB-', '192.0.2.', '999.0.2.', 'Synthetic.floor', 'Aruba7240'):
+        assert value not in message
+
+
+@pytest.mark.parametrize('output,category', [
+    (switches_output().replace('Total Switches:3', ''), 'OUTPUT_INCOMPLETE'),
+    (switches_output(total=4), 'COUNT_MISMATCH'),
+    (switches_output() + '\nprivate-unknown-tail', 'UNKNOWN_ROW'),
+    (switches_output(headers=['Status', 'private-unknown-column', 'Config Sync Time (sec)', 'Config ID']),
+     'UNKNOWN_TABLE'),
+])
+def test_structural_failure_categories_never_include_unknown_remote_values(output, category):
+    with pytest.raises(ParseError) as caught:
+        parse_switches(output)
+    assert category in str(caught.value)
+    assert 'private-unknown' not in str(caught.value)
