@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import threading
+import time
 from collections import deque
 from pathlib import Path
 
@@ -53,6 +54,7 @@ class Client:
         self.channel = channel or Channel()
         self.authenticated = False
         self.closed = False
+        self.before_auth = None
 
     def load_host_keys(self, filename):
         self.host_keys.load(filename)
@@ -69,6 +71,8 @@ class Client:
                 raise paramiko.BadHostKeyException(hostname, self.key, expected)
         else:
             self.policy.missing_host_key(self, host, self.key)
+        if self.before_auth is not None:
+            self.before_auth()
         self.authenticated = True
 
     def get_host_keys(self):
@@ -115,22 +119,29 @@ def test_sha256_fingerprint(key):
         hashlib.sha256(key.asbytes()).digest()).decode().rstrip("=")
 
 
-def test_first_use_requires_approval_before_authentication(make):
+def test_first_use_auto_pins_before_authentication_without_callback(make):
     session, client, calls = make(approval=False)
-    with pytest.raises(SSHError) as caught:
-        session.run('show global-user-table list ip "192.0.2.100"')
-    assert caught.value.code == "HOST_KEY_REJECTED"
-    assert not caught.value.retryable
-    assert not client.authenticated
-    assert len(calls) == 1
+
+    def before_auth():
+        assert not client.authenticated
+        keys = paramiko.HostKeys(str(session.known_hosts))
+        assert keys.lookup("192.0.2.10")[client.key.get_name()] == client.key
+
+    client.before_auth = before_auth
+    assert "Total entries = 0" in session.run('show global-user-table list ip "192.0.2.100"')
+    assert client.authenticated
+    assert calls == []
+    session.close()
 
 
-def test_approved_key_persisted_and_reused(make, tmp_path):
+def test_auto_pinned_key_persisted_and_reused(make, tmp_path):
     session, client, calls = make()
     assert "Total entries = 0" in session.run('show global-user-table list ip "192.0.2.100"')
+    original = session.known_hosts.read_bytes()
     assert session.run('show global-user-table list ip "192.0.2.100"')
-    assert len(calls) == 1
+    assert calls == []
     assert Path(tmp_path / "known_hosts").exists()
+    assert session.known_hosts.read_bytes() == original
     session.close()
     assert client.closed
 
@@ -188,7 +199,7 @@ def test_known_key_reconnect_skips_approval(make):
     first.close()
     second, second_client, second_calls = make(approval=False)
     second.run('show global-user-table list ip "192.0.2.100"')
-    assert len(first_calls) == 1
+    assert first_calls == []
     assert second_client.authenticated
     assert second_calls == []
     second.close()
@@ -229,57 +240,126 @@ def test_hierarchy_prompt_markers(make, monkeypatch, prompt):
     session.close()
 
 
-@pytest.mark.parametrize("answer, expected", [(False, "HOST_KEY_REJECTED"), (True, "HOST_KEY_APPROVAL_TIMEOUT")])
-def test_late_host_key_answer_is_never_network_failover(make, key, monkeypatch, answer, expected):
-    from aruba_client_live_tracker.ssh import _ApprovalPolicy
+@pytest.mark.parametrize("cancelled, expected", [(False, "HOST_KEY_TIMEOUT"), (True, "CANCELLED")])
+def test_host_key_cancel_and_expiry_never_authenticate_or_call_approval(make, key, cancelled, expected):
+    from aruba_client_live_tracker.ssh import _TOFUPolicy
 
-    session, client, _ = make()
-    clock = [0.0]
-    monkeypatch.setattr("aruba_client_live_tracker.ssh.time.monotonic", lambda: clock[0])
-
-    def late_answer(device, algorithm, fingerprint):
-        clock[0] = 5.0
-        return answer
-
-    session.approve_host_key = late_answer
-    with pytest.raises(SSHError) as caught:
-        _ApprovalPolicy(session, None, 2.0).missing_host_key(client, "192.0.2.10", key)
-    assert caught.value.code == expected
-    assert caught.value.retryable is False
-    assert not session.known_hosts.exists()
-
-
-def test_host_key_dialog_receives_transport_deadline(make, key, monkeypatch):
-    from aruba_client_live_tracker.ssh import _ApprovalPolicy
-
-    session, client, _ = make()
-    monkeypatch.setattr("aruba_client_live_tracker.ssh.time.monotonic", lambda: 0.0)
-    deadlines = []
-
-    def approval(device, algorithm, fingerprint, deadline):
-        deadlines.append(deadline)
-        return False
-
-    session.approve_host_key = approval
-    with pytest.raises(SSHError):
-        _ApprovalPolicy(session, None, 12.0).missing_host_key(client, "192.0.2.10", key)
-    assert deadlines == [12.0]
-
-
-def test_host_key_callback_receives_exact_operation_cancel(make, key, monkeypatch):
-    from aruba_client_live_tracker.ssh import _ApprovalPolicy
-
-    session, client, _ = make()
-    monkeypatch.setattr('aruba_client_live_tracker.ssh.time.monotonic', lambda: 0.0)
+    session, client, calls = make()
     cancel = threading.Event()
-    calls = []
-
-    def approval(device, algorithm, fingerprint, deadline, operation_cancel):
-        calls.append((deadline, operation_cancel))
-        return False
-
-    session.approve_host_key = approval
+    if cancelled:
+        cancel.set()
     with pytest.raises(SSHError) as caught:
-        _ApprovalPolicy(session, cancel, 12.0).missing_host_key(client, '192.0.2.10', key)
-    assert caught.value.code == 'HOST_KEY_REJECTED'
-    assert calls == [(12.0, cancel)]
+        _TOFUPolicy(session, cancel, time.monotonic() - 1).missing_host_key(client, "192.0.2.10", key)
+    assert caught.value.code == expected
+    assert not caught.value.retryable
+    assert not session.known_hosts.exists()
+    assert not client.authenticated
+    assert calls == []
+
+
+def test_constructor_without_approval_callback(tmp_path):
+    session = SSHSession(Device("MM", "192.0.2.10"), Credentials("user", "secret"), tmp_path / "known_hosts")
+    assert session.approve_host_key is None
+
+
+@pytest.mark.parametrize("contents", ["malformed", "192.0.2.10 ssh-rsa not-base64!", "bad-hash"])
+def test_invalid_store_blocks_authentication(make, contents):
+    session, client, calls = make()
+    if contents == "bad-hash":
+        contents = "|1|invalid|invalid " + client.key.get_name() + " " + client.key.get_base64()
+    session.known_hosts.write_text(contents)
+    with pytest.raises(SSHError) as caught:
+        session.run('show global-user-table list ip "192.0.2.100"')
+    assert caught.value.code == "KNOWN_HOSTS_INVALID"
+    assert not caught.value.retryable
+    assert not client.authenticated
+    assert not calls
+
+
+def test_storage_failure_blocks_authentication_and_preserves_store(make, key, monkeypatch):
+    session, client, calls = make()
+    old = paramiko.HostKeys()
+    old.add("192.0.2.20", key.get_name(), key)
+    old.save(str(session.known_hosts))
+    contents = session.known_hosts.read_bytes()
+    def fail_replace(*args):
+        raise OSError("secret path must not leak")
+    monkeypatch.setattr("aruba_client_live_tracker.ssh.os.replace", fail_replace)
+    with pytest.raises(SSHError) as caught:
+        session.run('show global-user-table list ip "192.0.2.100"')
+    assert caught.value.code == "KNOWN_HOSTS_WRITE"
+    assert not caught.value.retryable
+    assert not client.authenticated
+    assert not calls
+    assert "secret" not in str(caught.value)
+    assert session.known_hosts.read_bytes() == contents
+    assert not list(session.known_hosts.parent.glob(".hostkeys-*"))
+
+
+def test_algorithm_change_blocks_authentication(make, key):
+    # Different algorithm for the same endpoint cannot become a new first use.
+    session, client, calls = make(server_key=paramiko.ECDSAKey.generate())
+    keys = paramiko.HostKeys()
+    keys.add("192.0.2.10", key.get_name(), key)
+    keys.save(str(session.known_hosts))
+    with pytest.raises(SSHError) as caught:
+        session.run('show global-user-table list ip "192.0.2.100"')
+    assert caught.value.code == "HOST_KEY_CHANGED"
+    assert not caught.value.retryable
+    assert not client.authenticated
+    assert not calls
+
+
+def test_lock_file_error_blocks_authentication(make):
+    session, client, calls = make()
+    session.known_hosts.with_name('known_hosts.lock').mkdir()
+    with pytest.raises(SSHError) as caught:
+        session.run('show global-user-table list ip "192.0.2.100"')
+    assert caught.value.code == 'KNOWN_HOSTS_LOCK'
+    assert not caught.value.retryable
+    assert not client.authenticated
+    assert calls == []
+
+
+def test_handshake_rechecks_latest_disk_key_instead_of_snapshot(make, key, monkeypatch):
+    session, client, calls = make()
+    known = paramiko.HostKeys()
+    known.add('192.0.2.10', key.get_name(), key)
+    known.save(str(session.known_hosts))
+    original = client.connect
+
+    def connect(**kwargs):
+        replacement = paramiko.HostKeys()
+        replacement.add('192.0.2.10', key.get_name(), paramiko.RSAKey.generate(1024))
+        replacement.save(str(session.known_hosts))
+        original(**kwargs)
+
+    monkeypatch.setattr(client, 'connect', connect)
+    with pytest.raises(SSHError) as caught:
+        session.run('show global-user-table list ip "192.0.2.100"')
+    assert caught.value.code == 'HOST_KEY_CHANGED'
+    assert not client.authenticated
+    assert calls == []
+
+
+def test_existing_rsa_pin_preserves_negotiation_preference_without_key_cache(make, key, monkeypatch):
+    session, client, _ = make()
+    known = paramiko.HostKeys()
+    known.add('192.0.2.10', key.get_name(), key)
+    known.save(str(session.known_hosts))
+    original = client.connect
+    options = type('Options', (), {'key_types': ('ssh-ed25519', 'rsa-sha2-256', 'rsa-sha2-512', 'ssh-rsa')})()
+    transport = type('Transport', (), {'get_security_options': lambda self: options})()
+    monkeypatch.setattr(paramiko, 'Transport', lambda *args, **kwargs: transport)
+
+    def connect(**kwargs):
+        assert client.get_host_keys().lookup('192.0.2.10') is None
+        assert kwargs['transport_factory'](object()) is transport
+        assert options.key_types[0] == 'rsa-sha2-512'
+        assert set(options.key_types) == {'ssh-ed25519', 'rsa-sha2-256', 'rsa-sha2-512', 'ssh-rsa'}
+        original(**kwargs)
+
+    monkeypatch.setattr(client, 'connect', connect)
+    session.run('show global-user-table list ip "192.0.2.100"')
+    assert client.authenticated
+    session.close()

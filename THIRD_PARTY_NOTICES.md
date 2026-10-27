@@ -12,7 +12,7 @@ Aruba Client Live Tracker의 자체 코드는 MIT License입니다. 제품명 Ar
 - 소스 저장소 태그: https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v6.8.3
 - Qt 내장 제3자 코드(FreeType, HarfBuzz, libpng, zlib, PCRE2, Unicode 등) 고지는 동봉 `LICENSES/Qt-third-party`와 Qt 공식 문서 https://doc.qt.io/qt-6/licenses-used-in-qt.html 에서 확인합니다.
 
-같은 배포에 `ArubaClientLiveTracker_v0.2.0_third_party_sources.zip`을 제공합니다. 정확한 Qtbase, Qt imageformats/SVG/translations, PySide/Shiboken, Paramiko 소스와 SHA-256을 포함합니다. 실행 ZIP의 `SOURCE`에는 애플리케이션 코드와 재빌드 스크립트가 있습니다. 이 소스 ZIP을 실행 ZIP과 함께 보관·재배포하십시오.
+같은 배포에 `ArubaClientLiveTracker_v0.3.0_third_party_sources.zip`을 제공합니다. 정확한 Qtbase, Qt imageformats/SVG/translations, PySide/Shiboken, Paramiko 소스와 SHA-256을 포함합니다. 실행 ZIP의 `SOURCE`에는 애플리케이션 코드와 재빌드 스크립트가 있습니다. 이 소스 ZIP을 실행 ZIP과 함께 보관·재배포하십시오.
 
 Microsoft Visual C++ Runtime DLL은 CPython/Qt 바이너리의 실행 의존성으로 포함될 수 있습니다. Microsoft Visual Studio 재배포 조건이 적용되며 고지 원문은 `LICENSES/upstream/Microsoft-Visual-Cpp-Runtime.txt`에 포함합니다.
 

@@ -23,13 +23,26 @@ class Target:
 
 
 @dataclass(frozen=True)
+class DeviceIdentity:
+    hostname: str = ""
+    switch_ip: str = ""
+    reported_role: str = ""
+    model: str = ""
+    version: str = ""
+    observed_at: str = ""
+    source: str = ""
+
+
+@dataclass(frozen=True)
 class Device:
     name: str
     host: str
-    kind: str = "MD"  # MM_PRIMARY, MM_STANDBY, MD
+    kind: str = "MD"  # AUTO, MM_PRIMARY, MM_STANDBY, MD; UI registration defaults to AUTO.
     port: int = 22
     enabled: bool = True
     mappings: tuple[str, ...] = ()
+    identity: DeviceIdentity | None = None
+    origin: str = "manual"  # Existing explicit settings are never overwritten by discovery.
 
 
 @dataclass(frozen=True)
@@ -81,6 +94,26 @@ class Observation:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class Diagnostic:
+    stage: str
+    code: str
+    message: str
+    device_name: str = ""
+    endpoint: str = ""
+    command: str = ""
+    at: str = field(default_factory=utc_now)
+    severity: str = "오류"
+
+
+DIAGNOSTIC_STAGE_LABELS = {
+    "connect": "SSH 연결", "host_key": "서버 키 검사", "auth": "SSH 인증",
+    "discovery": "장비 발견", "identity": "장비 역할 판별", "mm_lookup": "MM 단말 검색",
+    "md_mapping": "담당 WLC 매핑", "md_command": "WLC 명령 실행",
+    "parse": "CLI 출력 해석", "wireless": "무선 항목 조회", "storage": "이력 저장",
+}
+
+
 @dataclass
 class PollResult:
     outcome: Outcome
@@ -91,6 +124,7 @@ class PollResult:
     mm_status: str = "확인 불가"
     md_status: str = "확인 불가"
     raw: dict[str, str] = field(default_factory=dict, repr=False)
+    diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
 @dataclass

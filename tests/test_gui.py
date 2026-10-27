@@ -228,19 +228,15 @@ def test_multi_cap_and_locked_settings(qtbot, tmp_path):
     window.close()
 
 
-def test_host_approval_accepts_linked_cancel_but_rejects_old_generation():
-    import threading
-    import time
-    from types import SimpleNamespace
-
-    from aruba_client_live_tracker.ui_monitoring import HostApproval
-    external = threading.Event()
-    context = SimpleNamespace(generation=2, cancel=external, in_flight=True)
-    window = SimpleNamespace(coordinator=SimpleNamespace(contexts={'owner': context}))
-    request = HostApproval('owner', 2, None, 'ssh-ed25519', 'SHA256:example', time.monotonic()+10, threading.Event())
-    assert MainWindow._valid_approval(window, request)
-    context.generation += 1
-    assert not MainWindow._valid_approval(window, request)
+def test_no_host_approval_ui_or_signal_exists(qtbot, tmp_path):
+    from aruba_client_live_tracker import ui_monitoring
+    window = MainWindow(data_path=tmp_path, demo=False)
+    qtbot.addWidget(window)
+    assert not hasattr(ui_monitoring, 'HostApproval')
+    assert not hasattr(window, 'host_key_requested')
+    assert not hasattr(window, '_approval_queue')
+    assert not hasattr(window, '_request_host_key')
+    window.close()
 
 
 def test_multi_demo_cli_smoke_verifies_every_target(tmp_path):
@@ -297,24 +293,17 @@ def test_selecting_unstarted_row_clears_context_labels(qtbot, tmp_path):
     window.close()
 
 
-def test_live_pool_approval_is_cancellable_and_credentials_shared(qtbot, tmp_path, monkeypatch):
-    import time
-
-    from PySide6.QtCore import Qt
+def test_first_live_connection_never_opens_key_dialog_and_credentials_reused(qtbot, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
 
     from aruba_client_live_tracker import collector, session_pool
     from aruba_client_live_tracker.models import Credentials, Device
 
     class FakeSSH:
-        def __init__(self, device, credentials, known_hosts, approve):
+        def __init__(self, device, credentials, known_hosts, approve=None):
             self.device = device
-            self.approve_host_key = approve
+            assert approve is None
         def run(self, command, cancel=None, deadline=None):
-            approved = self.approve_host_key(self.device, 'ssh-ed25519', 'SHA256:synthetic',
-                                             deadline or time.monotonic()+5, cancel)
-            if not approved:
-                raise RuntimeError('cancelled')
             return 'synthetic'
         def close(self):
             pass
@@ -325,37 +314,38 @@ def test_live_pool_approval_is_cancellable_and_credentials_shared(qtbot, tmp_pat
             self.device = devices[0]
         def poll(self, target, selected_mac=None, cancel=None):
             self.runner.run(self.device, 'show user-table', cancel=cancel)
-            return PollResult(Outcome.OK, Observation(ip=target.value, mac='02:00:00:00:00:02'))
+            return PollResult(Outcome.OK, Observation(ip=target.value, mac=f'02:00:00:00:00:{int(target.value.split(".")[-1]):02x}'))
         def close(self):
             self.runner.close()
 
+    def unexpected_dialog(*args, **kwargs):
+        raise AssertionError('First SSH connection must never ask for host key approval')
+    monkeypatch.setattr(QMessageBox, 'exec', unexpected_dialog)
+    monkeypatch.setattr(QMessageBox, 'open', unexpected_dialog)
     monkeypatch.setattr(session_pool, 'SSHSession', FakeSSH)
     monkeypatch.setattr(collector, 'LiveCollector', FakeLive)
     window = MainWindow(data_path=tmp_path, demo=False, multi=True)
     qtbot.addWidget(window)
     window.devices = [Device('가상 SSH', '192.0.2.1', 'MM_PRIMARY')]
     requests = []
-    monkeypatch.setattr(window, '_credentials', lambda: requests.append(True) or Credentials('synthetic', 'synthetic'))
+    credentials = Credentials('synthetic', 'synthetic')
+    monkeypatch.setattr(window, '_credentials', lambda: requests.append(True) or credentials)
     ids, _ = window.add_many_targets('192.0.2.100\n192.0.2.101')
     window.start_all()
-    qtbot.waitUntil(lambda: window._approval_box is not None, timeout=3000)
+    qtbot.waitUntil(lambda: all(window.coordinator.contexts[i].last_result for i in ids), timeout=3000)
     assert requests == [True]
-    first_owner = window._approval_request.owner_id
-    window.coordinator.stop(first_owner)
-    qtbot.waitUntil(lambda: window._approval_request is not None and window._approval_request.owner_id != first_owner,
-                     timeout=3000)
-    assert window.pool is not None  # The other owner's shared run remains alive.
-    box = window._approval_box
-    approve = next(button for button in box.buttons() if box.buttonRole(button) == QMessageBox.ButtonRole.AcceptRole)
-    qtbot.mouseClick(approve, Qt.MouseButton.LeftButton)
-    other = next(identifier for identifier in ids if identifier != first_owner)
-    qtbot.waitUntil(lambda: window.coordinator.contexts[other].last_result is not None, timeout=3000)
-    assert window.coordinator.contexts[other].last_result.outcome == Outcome.OK
+    assert all(window.coordinator.contexts[i].last_result.outcome == Outcome.OK for i in ids), [(window.coordinator.contexts[i].last_result, window.coordinator.contexts[i].note) for i in ids]
+    window.stop_all()
+    qtbot.waitUntil(lambda: not window.coordinator.busy, timeout=3000)
+    window._tick()
+    assert window.pool is None and window._credentials_value is credentials
+    window.start_all()
+    qtbot.waitUntil(lambda: all(window.coordinator.contexts[i].last_result for i in ids), timeout=3000)
     assert requests == [True]
     window.stop_all()
     qtbot.waitUntil(lambda: not window.coordinator.busy, timeout=3000)
-    assert window.pool is None and window._credentials_value is None
     window.close()
+    assert window._credentials_value is None
 
 
 def test_session_start_failure_is_visible_and_other_rows_continue(qtbot, tmp_path, monkeypatch):

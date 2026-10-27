@@ -36,7 +36,7 @@ jobs:
       - name: Static checks
         run: python -m ruff check src tests scripts
       - name: Tests including security and demo GUI
-        run: python -m pytest -q
+        run: python -m pytest -q --junitxml=artifacts/pytest-${{ runner.os }}.xml
       - name: Single-client process smoke
         run: python -m aruba_client_live_tracker.main --demo --smoke-test --data-dir smoke-single --smoke-result artifacts/source-single-smoke.json
       - name: Ten-client process smoke
@@ -58,7 +58,9 @@ jobs:
           name: validation-${{ runner.os }}
           path: |
             artifacts/*.json
+            artifacts/*.xml
             dist/validation/*.json
+            dist/validation/*.xml
           if-no-files-found: warn
       - name: Retain Windows artifacts
         if: runner.os == 'Windows'

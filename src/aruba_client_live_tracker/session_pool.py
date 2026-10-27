@@ -89,13 +89,12 @@ class OwnerCommandRunner:
 class SharedSessionPool:
     """Share at most ``max_connections`` SSH sessions within one credentials scope.
 
-    ``approve_host_key(owner_id, device, algorithm, fingerprint, deadline, cancel)``
-    is bound afresh to each active command. It never consults global UI state.
-    Queue and capacity waits use the command's absolute monotonic deadline.
+    The optional approval callback is accepted for source compatibility and is
+    never invoked. Queue and capacity waits use the command's absolute deadline.
     """
 
     def __init__(self, credentials: Credentials, known_hosts: Path,
-                 approve_host_key: Callable | None, max_connections: int = 12, cooldown: float = 15):
+                 approve_host_key: Callable | None = None, max_connections: int = 12, cooldown: float = 15):
         if not 1 <= max_connections <= 12:
             raise ValueError('SSH 연결 수는 1~12 범위여야 합니다.')
         if cooldown < 0:
@@ -122,6 +121,8 @@ class SharedSessionPool:
 
     @staticmethod
     def _slot(device: Device) -> str:
+        if device.kind not in {'MD', 'MM_PRIMARY', 'MM_STANDBY'}:
+            raise SSHError('DEVICE_TYPE_UNKNOWN', '역할이 확인되지 않은 장비는 추적 연결을 공유할 수 없습니다.')
         return 'md' if device.kind == 'MD' else 'mm'
 
     @staticmethod
@@ -158,6 +159,7 @@ class SharedSessionPool:
 
     def _run(self, owner: OwnerCommandRunner, device: Device, command: str,
              cancel: threading.Event | None, deadline: float | None) -> str:
+        self._slot(device)  # Reject AUTO before touching any owner's tracing slots.
         expires = time.monotonic() + INITIAL_CONNECTION_TIMEOUT if deadline is None else deadline
         request = _Request(owner, device, _Cancellation(cancel), expires)
         endpoint = (device.host, device.port)
@@ -194,23 +196,6 @@ class SharedSessionPool:
                 self._condition.notify_all()
                 raise
 
-        def approve(active_device, algorithm, fingerprint, approval_deadline, approval_cancel):
-            # Expiry while confirming trust must never trigger MM availability
-            # failover, even at the boundary between the policy and callback.
-            if self._closed or owner._closed or request.cancel.is_set():
-                raise SSHError('CANCELLED', 'SSH 키 확인이 취소되었습니다.')
-            trust_deadline = min(expires, approval_deadline)
-            if time.monotonic() >= trust_deadline:
-                raise SSHError('HOST_KEY_APPROVAL_TIMEOUT', 'SSH 서버 키 확인 시간이 만료되었습니다.')
-            callback = self.approve_host_key
-            if callback is None:
-                return False
-            return callback(owner.owner_id, device, algorithm, fingerprint,
-                            trust_deadline, request.cancel)
-
-        # This session is exclusively reserved until the finally block. In
-        # particular, no queued cancellation can replace its approval closure.
-        session.approve_host_key = approve
         failed = False
         try:
             self._check(request)

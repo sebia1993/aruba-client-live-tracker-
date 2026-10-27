@@ -14,6 +14,9 @@
 
 | 목적 | 검토한 명령 | 수집 대상 / 공식 근거 | 필터·권한·부하 및 제한 |
 |---|---|---|---|
+| MM 장비 목록 발견 | `show switches` | 입력한 MM. [명령 문서](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-switches.htm) | MM 자체를 포함한 관리 장비 목록. 현재 버전은 고정 명령만 사용하며 토폴로지 자동 반복 탐색을 하지 않는다. `Type` 등 역할 근거와 관리 주소를 검토한다. |
+| 선택 장비 모델·버전 확인 | `show version` | 사용자가 선택한 주소. [명령 문서](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-version.htm) | 모델과 OS 버전 근거이며 모델명만으로 Primary/Standby/MD를 확정하지 않는다. |
+| 선택 장비 자기 식별 | `show switchinfo` | 사용자가 선택한 주소. [명령 문서](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-switchinfo.htm) | hostname·switch IP·역할 등 확인 가능한 필드만 사용한다. 자기 행을 확정할 수 없거나 역할 근거가 모호하면 AUTO로 남긴다. |
 | IP로 단말 식별 | `show global-user-table list ip "192.0.2.100"` | MM. [명령 문서](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-glb-usr-tab.htm), PDF 2578–2579 | IP 필터. Enable 권한 필요. `Current switch`를 등록 MD 매핑과 대조한다. 여러 MAC이면 사용자 선택이 필요하다. |
 | MAC으로 현재 IP 식별 | `show global-user-table list mac-addr aa:bb:cc:dd:ee:ff` | MM. 위 global-user-table 문서 | MAC 필터. 출력의 IP·Role·Auth·AP 등의 값은 해당 시점 MM 관측이다. 필터 없는 `list`로 자동 대체하지 않는다. |
 | 사용자 접속·인증 정보 | `show user-table mac aa:bb:cc:dd:ee:ff` | 담당 MD. [명령 문서](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-user-tab.htm), PDF 3499–3505 | MAC 필터. 문서는 MM 및 MD의 Enable/Config 모드를 기재한다. 앱은 설정 모드로 진입하지 않는다. 인증 방식과 인증 성공 여부는 별도 항목이다. |
@@ -23,6 +26,10 @@
 | AP 이동·해제 기록 | `show ap client trail-info aa:bb:cc:dd:ee:ff` | 담당 MD의 선택적 진단. [명령 문서](https://arubanetworking.hpe.com/techdocs/ArubaOS/oxygen/AOS-8%20Command%20Line%20Interface%20Guide/GUID-F6390631-991C-47EB-881E-B1EF083EF1DF.html), PDF 1670–1672 | MAC 인자는 선택 사항이지만 앱에서는 필수다. 제한된 과거 버퍼이며 현재 접속 근거가 아니다. |
 | ClientMatch 이동 이력 | `show ap arm client-match history client-mac aa:bb:cc:dd:ee:ff` | 담당 MD의 선택적 진단. [명령 문서](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-ap-arm-cm-his.htm), PDF 1568–1571 | MAC 필터. ClientMatch가 기록한 이동만 포함하며 모든 로밍을 포함하지 않는다. 과거 Signal 값은 현재 RSSI가 아니다. |
 | 인증 이벤트 원문 | `show auth-tracebuf mac aa:bb:cc:dd:ee:ff` | 담당 MD의 선택적 진단. [명령 문서](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-auth-tracebuf.htm), PDF 2364–2366 및 위 AOS 8 문제 해결 문서 | MAC 필터. 인증 교환·실패 사유가 실제 기록된 경우에만 사실로 제시한다. 기록 없음은 인증 성공이나 실패를 증명하지 않는다. 설정으로 debug를 켜지 않는다. |
+
+### 발견 명령의 역할 판별 한계
+
+2026-10-27 위 세 CLI Bank URL에 HTTP 200 응답과 문서 제목을 확인했습니다. `show switches` 문서는 MM 자체를 포함한 장비 목록을 설명하지만 일부 예시는 6.x `master` 출력이며, `show switchinfo` 예시도 `switchrole:master`를 포함합니다. 이런 과거 `master/local` 표기만으로 ArubaOS 8의 MM Primary/Standby를 확정하지 않습니다. 이름·모델이나 목록 순서로 Primary를 추정하지 않으며 명시적인 conductor/standby/MD 역할 근거와 자기 식별을 확인합니다. 불명확한 장비는 AUTO로 남겨 활성 추적에서 제외하고 기존 수동 역할·관리 주소·매핑을 보존합니다. 문서의 예시를 실장비 호환성이나 사용자의 MD 오류 해결 증거로 사용하지 않습니다.
 
 ### 공식 문서의 실행 위치 표기 차이
 
@@ -64,4 +71,4 @@
 
 ## 사용자 장비에서 확인할 항목
 
-처음에는 60초 주기로 대상 MAC 하나를 조회하여 MM Primary/Standby, Current switch 매핑, MD 사용자 결과와 AP 소유 관계를 확인한다. 각 명령의 거부 여부·필터 결과·필드 단위와 수집 시간을 확인한 후 15초로 낮춘다. AP-535 및 7240XM의 실제 카운터 의미, 클러스터 UAC/AAC 차이, 시계/시간대, dormant/비활성 행, 읽기 권한, 출력 폭·페이지 처리, 절전 단말의 오래된 마지막 패킷 값은 운영 환경에서 검증해야 한다. 실제 출력 원문을 공개 이슈나 저장소에 첨부하지 않는다.
+발견 시 seed와 선택한 장비의 읽기 전용 명령 권한·역할·주소를 먼저 확인합니다. 처음에는 60초 주기로 대상 MAC 하나를 조회하여 MM Primary/Standby, Current switch 매핑, MD 사용자 결과와 AP 소유 관계를 확인한다. 각 명령의 거부 여부·필터 결과·필드 단위와 수집 시간을 확인한 후 15초로 낮춘다. AP-535 및 7240XM의 실제 카운터 의미, 클러스터 UAC/AAC 차이, 시계/시간대, dormant/비활성 행, 읽기 권한, 출력 폭·페이지 처리, 절전 단말의 오래된 마지막 패킷 값은 운영 환경에서 검증해야 한다. 실제 출력 원문을 공개 이슈나 저장소에 첨부하지 않는다.

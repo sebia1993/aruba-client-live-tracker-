@@ -150,20 +150,25 @@ def test_security_failures_are_not_cooldown_or_retryable(pool, code):
     assert owner.run(DEVICE, COMMAND) == COMMAND
 
 
-def test_approval_bound_to_active_owner_operation_and_cancel(pool):
+def test_pool_never_passes_approval_callback_to_transport(pool):
     calls = []
     pool.approve_host_key = lambda *args: calls.append(args) or True
-    Transport.approve = True
-    one, two = pool.for_owner('one'), pool.for_owner('two')
-    cancel = threading.Event()
-    deadline = time.monotonic() + 5
-    one.run(DEVICE, COMMAND, cancel=cancel, deadline=deadline)
-    two.run(DEVICE, COMMAND, deadline=deadline)
-    assert [call[0] for call in calls] == ['one', 'two']
-    assert all(call[1:5] == (DEVICE, 'ssh-ed25519', 'SHA256:synthetic', deadline) for call in calls)
-    cancel.set()
-    assert calls[0][5].is_set()
-    assert not calls[1][5].is_set()
+    pool.for_owner('one').run(DEVICE, COMMAND)
+    assert Transport.instances[0].approve_host_key is None
+    assert calls == []
+
+
+def test_auto_device_never_mutates_tracing_slots(pool):
+    runner = pool.for_owner('one')
+    runner.run(DEVICE, COMMAND)
+    entries, slots = dict(pool._entries), dict(runner._slots)
+    with pytest.raises(SSHError) as caught:
+        runner.run(Device('Unknown', '192.0.2.99', 'AUTO'), COMMAND)
+    assert caught.value.code == 'DEVICE_TYPE_UNKNOWN'
+    assert pool._entries == entries
+    assert runner._slots == slots
+    assert len(Transport.instances) == 1
+    assert not Transport.instances[0].closed
 
 
 def test_connection_cap_evicts_idle_connections_and_is_bounded(pool):
@@ -273,7 +278,7 @@ def test_cooldown_is_shared_after_failed_owner_drops_and_can_expire(pool):
     assert second.run(DEVICE, COMMAND) == COMMAND
 
 
-def test_real_ssh_approval_is_bound_to_owner_and_owner_close_interrupts_it(pool, monkeypatch):
+def test_real_pool_auto_pins_without_callback(pool, monkeypatch):
     import paramiko
     from test_ssh import Client
 
@@ -282,46 +287,13 @@ def test_real_ssh_approval_is_bound_to_owner_and_owner_close_interrupts_it(pool,
     monkeypatch.setattr('aruba_client_live_tracker.session_pool.SSHSession', SSHSession)
     client = Client(paramiko.RSAKey.generate(1024))
     monkeypatch.setattr(paramiko, 'SSHClient', lambda: client)
-    approving = threading.Event()
-    seen = []
-
-    def approve(owner_id, device, algorithm, fingerprint, deadline, cancel):
-        seen.append((owner_id, device, deadline, cancel))
-        approving.set()
-        assert cancel.wait(2)
-        return True
-
-    pool.approve_host_key = approve
-    owner = pool.for_owner('approval-owner')
-    deadline = time.monotonic() + 10
-    with ThreadPoolExecutor(max_workers=1) as workers:
-        pending = workers.submit(owner.run, DEVICE, COMMAND, deadline=deadline)
-        assert approving.wait(2)
-        owner.close()
-        with pytest.raises(SSHError) as caught:
-            pending.result(timeout=2)
-        assert caught.value.code == 'CANCELLED'
-    assert seen[0][:3] == ('approval-owner', DEVICE, deadline)
-    assert seen[0][3].is_set()
-    assert not client.authenticated
-    assert not pool.known_hosts.exists()
-
-
-def test_approval_deadline_boundary_remains_nonretryable(pool, monkeypatch):
-    def late_approval(session, command, cancel=None, deadline=None):
-        while time.monotonic() < deadline:
-            time.sleep(0.001)
-        session.approve_host_key(session.device, 'ssh-ed25519', 'SHA256:synthetic', deadline, cancel)
-        return command
-
-    monkeypatch.setattr(Transport, 'run', late_approval)
-    called = []
-    pool.approve_host_key = lambda *args: called.append(args) or True
-    with pytest.raises(SSHError) as caught:
-        pool.for_owner('one').run(DEVICE, COMMAND, deadline=time.monotonic() + 0.02)
-    assert caught.value.code == 'HOST_KEY_APPROVAL_TIMEOUT'
-    assert not caught.value.retryable
-    assert not called
+    calls = []
+    pool.approve_host_key = lambda *args: calls.append(args) or False
+    result = pool.for_owner('one').run(DEVICE, COMMAND)
+    assert 'Total entries = 0' in result
+    assert client.authenticated
+    assert pool.known_hosts.exists()
+    assert calls == []
 
 
 def test_closed_owner_registry_stays_bounded_over_1000_lifetimes(pool):

@@ -1,55 +1,43 @@
-# v0.2.0 빌드와 검증 기록
+# v0.3.0 빌드와 검증 기록
 
-기록일: 2026-10-27. 실제 Aruba 장비 접속과 Windows 11 실기 검증은 수행하지 않았습니다.
+기록일: 2026-10-27. 이 문서는 현재 버전의 실제 검증 결과만 기록합니다. 통합 검증·Windows 빌드·배포 확인은 아직 완료 전입니다. 실제 Aruba 장비 접속과 Windows 11 실기 검증은 수행하지 않았습니다.
 
-## 현재 버전 상태
+## 현재 상태
 
 | 항목 | 기록 상태 |
 |---|---|
-| 버전 | pyproject·패키지·Windows 빌드 기본값 0.2.0 |
-| 공개 원격 | `https://github.com/sebia1993/aruba-client-live-tracker-.git` (저장소 이름 끝 하이픈 포함) |
-| v0.2.0 자동 테스트·정적 검사 | Linux Python 3.12: **178 passed (16.07s)**, Ruff 통과 |
-| 고정 의존성 공지 | PyPI 25개 고정 패키지: 알려진 영향 공지 0건; 내장 네이티브 라이브러리 전체 감사는 아님 |
-| 10대 GUI·스크린샷 | 단일 1대/5건, 다중 10대/50건; 125%·150% offscreen 스모크 통과, 실제 스크린샷 저장 |
-| Windows Actions 빌드·단일/10대 EXE | **성공**. Windows x64 Python 3.12.10 / PyInstaller 6.16.0, frozen 단일 1대/5건·다중 10대/50건 |
-| 원격 푸시·Actions·Release | main 푸시·[CI #40430288521](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40430288521) 성공. [태그 CI](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40430805964)·[Release #40430808037](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40430808037) 성공, 공개 ZIP 다운로드·검증 완료 |
+| 버전 | pyproject·패키지·Windows 빌드·대응 소스 기본값 0.3.0 |
+| 공개 원격 | `https://github.com/sebia1993/aruba-client-live-tracker-.git` (이름 끝 하이픈 포함) |
+| Linux/Windows 자동 테스트·정적 검사 | Linux Python 3.12: 305개 통과(21.94초), Ruff·diff 검사 통과. Windows 결과 대기 |
+| 의존성 공지 검사 | 2026-10-27 고정 의존성 25개 검사, 공개 공지 영향 패키지 0개. Qt/PySide 6.8.3와 Paramiko 5.0.0 유지 |
+| 간편 설정·발견 화면 | 실제 Qt 설정·발견·단일·10대 화면을 docs/assets/v030-*.png에 캡처 |
+| 단일/10대 소스 데모 | Linux Qt offscreen 종료 코드 0. 단일 5회, 10대 각 5회(합계 50회) SQLite 저장 및 독립 MAC 수 확인 |
+| Windows 네이티브 onedir·실제 EXE 단일/10대 | Actions 실행 결과 대기 |
+| 원격 푸시·태그·Release·다운로드 | v0.3.0 확인 전. 게시 완료나 해시를 추정하지 않음 |
+| 사용자 MD 오류의 실제 원인 | 미확정. 단계별 진단 개선과 실환경 원인 확인은 구분 |
 
-검증한 코드 커밋은 `3450bd982d2b4011f63870df90a311253b582ef8`입니다. CI의 Ubuntu 테스트는 178개(20.34초), Windows 테스트는 178개(34.35초), Windows 빌드 스크립트의 재검사는 178개(32.72초) 통과했습니다. 정적 검사와 공개 의존성 공지 검사도 통과했습니다. v0.1.0 테스트 121건과 Wine 스모크는 현재 버전의 결과가 아닙니다.
+검증 후 코드 커밋, 실행 환경, 명령, 통과/실패 수, Actions URL, 산출물 이름과 SHA-256을 이 문서에 기록합니다. 테스트·빌드가 실패하면 실패 내용과 후속 검증을 남깁니다. 문서에 예정된 작업을 성공 결과로 기재하지 않습니다.
 
-Windows CI의 실제 EXE 결과는 [단일](validation/v0.2.0/windows-exe-single-smoke.json)과 [10대](validation/v0.2.0/windows-exe-multi-smoke.json)에 보관합니다. 이 증거는 Qt offscreen으로 실제 Windows EXE 프로세스를 실행하여 대상별 수집·SQLite·정상 종료를 확인한 기록입니다. 릴리스 태그는 문서·증거만 추가한 커밋에서 생성하며, Release 워크플로가 다시 테스트·빌드·EXE 검증을 통과해야 자산을 게시합니다.
+## 로컬 검증
 
-## 검증 증거와 산출물
+`QT_QPA_PLATFORM=offscreen python -m pytest -q --junitxml=artifacts/pytest-v030.xml`에서 305개 모두 통과했습니다. 실 TCP loopback Paramiko 서버로 최초 키 자동 저장, 변경 키의 비밀번호 인증 전 차단, MM 발견 및 별도 관리 주소의 MD 역할 검사를 확인했습니다. 별도 프로세스의 신뢰 파일 충돌·취소·기한도 검사했습니다.
 
-- 소스 GUI: `--demo --smoke-test` 및 `--multi-demo --smoke-test`의 종료 코드·JSON, 대상별 SQLite 관측.
-- Windows 빌드: CI/Release의 실제 Windows runner, pytest/ruff/의존성 공지, PyInstaller 로그.
-- Frozen EXE: `dist/validation/windows-exe-single-smoke.json`, `windows-exe-multi-smoke.json`. 빌드는 두 프로세스 모두 성공해야 ZIP을 만듭니다.
-- `ArubaClientLiveTracker_v0.2.0_windows_x64.zip`: EXE·동적 DLL·문서·고지·재귀적 `SOURCE`·검증 JSON.
-- `ArubaClientLiveTracker_v0.2.0_third_party_sources.zip`: Qt 6.8.3/PySide·Shiboken 및 Paramiko 5.0.0의 정확한 대응 소스. 변경되지 않은 소스는 캐시를 재사용합니다.
-- 각 ZIP의 `.sha256`. Release 자산 4개 모두 실제 다운로드했고 각 ZIP의 SHA-256과 GitHub 자산 digest가 일치했습니다.
+최초 통합 실행은 안내 문구 기대값 차이로 1개 실패(301개 통과)했고 실제 진단 의미를 유지한 기대값으로 수정했습니다. 독립 리뷰에서 발견한 500행 이후 장비 선택 오류는 전체 장비 행을 보존하도록 수정했으며, 501행 회귀 테스트와 독립 1,001행 검사를 통과했습니다. 최종 소스/설계 리뷰에서 확인된 미해결 결함은 없습니다.
 
-공개 공지 검사는 빌드 시 PyPI 버전 공지를 확인하며 내장 네이티브 라이브러리 전체 감사를 의미하지 않습니다. 데스크톱 실행에는 외부 분석 서비스/API가 필요하지 않습니다.
+## 보존할 증거
 
-## 검증 경계
+- pytest JUnit: CI `artifacts/pytest-<OS>.xml`, Windows 빌드 `artifacts/pytest-windows-build.xml` 및 `dist/validation/pytest-windows-build.xml`.
+- 단일/10대 소스 데모: 종료 코드, 스모크 JSON, 대상별 SQLite 관측 수.
+- Windows EXE: 실제 Windows runner의 빌드 로그와 `dist/validation/windows-exe-single-smoke.json`, `windows-exe-multi-smoke.json`. 두 프로세스 모두 성공해야 ZIP을 생성합니다.
+- 발견/역할: 합성 CLI와 가짜 SSH 테스트, 선택 장비 검사, 수동 설정 보존, 불명확한 AUTO 제외, 변경 키/저장 실패 차단 및 자격 증명 미저장 테스트.
+- 공개 자산: `ArubaClientLiveTracker_v0.3.0_windows_x64.zip`, 대응 소스 ZIP과 각 `.sha256`의 실제 다운로드·CRC·SHA-256·구성 검증.
+- 배포 구성: EXE·교체 가능한 동적 Qt DLL·문서·LICENSES·재귀적 SOURCE·검증 JSON/XML, 사용자 데이터/비밀정보 미포함 검사.
 
-Qt offscreen은 실제 창 생성·수집·SQLite·정상 종료를 확인하지만 Windows 11 화면·배율 실기를 대체하지 않습니다. Wine 실행도 Windows 11 네이티브와 구분합니다. 실제 ArubaOS 8.10/7240XM/AP-535의 명령·권한·단위·MM/MD 장애 전환·실장비 10대 부하와 24시간 사용은 미검증입니다. 실행 파일은 코드 서명되지 않았습니다.
+## 검증 경계와 과거 기록
 
-## v0.1.0 과거 기록
+Qt offscreen은 창 생성·수집·SQLite·종료를 검사하지만 Windows 11 실기 화면과 배율, 실제 ArubaOS 8.10/7240XM/AP-535의 권한·출력·역할·부하·장시간 실행을 증명하지 않습니다. 실행 파일은 코드 서명되지 않았습니다. 공개 의존성 공지 검사는 내장 네이티브 라이브러리 전체 감사를 뜻하지 않습니다.
 
-기존 증거는 [validation/v0.1.0](validation/v0.1.0/BUILD_VALIDATION_KO.md)에 보관합니다. Linux/Windows Python 121건, Wine frozen 단일 데모, 배율 스모크, 당시 저장소 생성 오류는 모두 과거 버전의 기록입니다. 현재 원격 저장소는 존재하며 당시의 생성 실패를 현재 상태로 안내하지 않습니다.
+- [v0.2.0 완료 기록](validation/v0.2.0/BUILD_VALIDATION_KO.md): 당시 CI 178개·Windows EXE·Release·다운로드 증거.
+- [v0.1.0 과거 기록](validation/v0.1.0/BUILD_VALIDATION_KO.md): 당시 Python 121개·Wine 스모크·저장소 생성 오류.
 
-## CI 초기 실행에서 수정한 문제
-
-[첫 CI](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40430054152)는 Ubuntu의 Qt 런타임 `libEGL.so.1` 누락과 Windows 빌드 검사 콘솔의 CP1252 한국어 출력 오류로 실패했다. Linux 런타임 설치 단계를 추가하고 빌드 검사 출력 및 테스트 파일 읽기에 UTF-8을 명시했다. Windows 콘솔 오류를 오프라인 회귀 테스트로 재현한 뒤 수정했으며, 실패 결과를 숨기거나 테스트를 건너뛰지 않았다.
-
-## 최종 공개 배포 확인
-
-[GitHub Release v0.2.0](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.2.0)은 2026-10-27 01:10:45 UTC에 게시됐습니다. 릴리스 커밋은 `65cb4326bcf06a211aded2d2da48db38e8f1d8a1`이며 해당 커밋의 Ubuntu/Windows CI와 Release가 모두 성공했습니다. Windows Release의 pytest는 **178 passed (33.72s)**입니다. runner는 Windows Server 2025 x64로 Windows 11 실기와 구분합니다. 이 절을 추가한 후속 커밋은 문서·검증 증거만 변경하며 실행 파일 소스와 태그를 변경하지 않습니다.
-
-| 공개 자산 | 바이트 | SHA-256 |
-|---|---:|---|
-| `ArubaClientLiveTracker_v0.2.0_windows_x64.zip` | 42,216,853 | `c4256aaa98278f01374b50c804e1ea17761fa5de79e21738873e7d125b9da98f` |
-| `ArubaClientLiveTracker_v0.2.0_third_party_sources.zip` | 72,212,226 | `e3fb79eba3d762806732f30cc59f128a193c433087b6a7242c68a9ce9aa2341c` |
-
-[다운로드 검증 JSON](validation/v0.2.0/release-verification.json): 두 ZIP의 SHA-256/CRC, x64 GUI EXE와 `asInvoker` 권한, 한국어 Qt 번역, 10개 의존성 라이선스 고지, 정확한 대응 소스 6개 해시, 애플리케이션 소스·테스트·빌드 파일 포함을 확인했습니다. 배포의 DB/로그/설정/자격 증명 파일명 및 텍스트 키·토큰 패턴 검사도 통과했습니다. 임의의 비밀정보가 없음을 수학적으로 보증하는 검사는 아니며, 프로젝트 개발에는 비식별 가상 데이터만 사용했습니다.
-
-공개 실행 ZIP 내 frozen 검증 결과는 단일 1대/5건, 다중 10대/50건과 독립 MAC 10개입니다. 실제 장비 조회·Windows 11 사용자 화면 및 장기간 운영은 앞서 기록한 대로 사용자 검증 대상입니다.
+이전 버전의 결과와 SHA-256은 현재 v0.3.0의 증거로 사용하지 않습니다.

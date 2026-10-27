@@ -396,3 +396,103 @@ def test_combined_export_validates_all_ids_before_writing_and_preserves_empty_se
         assert "가상" in text
         with pytest.raises(ValueError):
             export([session], path, "2026-01-02T00:00:00Z", "2026-01-01T00:00:00Z")
+
+
+def test_diagnostics_upgrade_roundtrip_and_safe_reports(tmp_path):
+    import sqlite3
+
+    from aruba_client_live_tracker.models import Diagnostic
+
+    path = tmp_path / "old.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.executescript("""
+            CREATE TABLE sessions (id INTEGER PRIMARY KEY, query TEXT NOT NULL,
+                simulated INTEGER NOT NULL, started_at TEXT NOT NULL, ended_at TEXT);
+            CREATE TABLE polls (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id),
+                collected_at TEXT NOT NULL, outcome TEXT NOT NULL, error TEXT NOT NULL,
+                mm_status TEXT NOT NULL, md_status TEXT NOT NULL, observation TEXT);
+            INSERT INTO sessions VALUES (1, '192.0.2.100', 0, '2026-01-01T00:00:00Z', NULL);
+            INSERT INTO polls VALUES (1, 1, '2026-01-01T00:00:00+00:00', 'error', 'old', '', '', NULL);
+        """)
+    with HistoryStore(path) as store:
+        assert store.observations(1)[0]["diagnostics"] == []
+        diagnostic = Diagnostic("md_command", "=BAD", "<script>bad</script> password=secret",
+                                device_name="@WLC", endpoint="192.0.2.1:22", command="show user-table",
+                                at="2026-01-02T00:00:00Z")
+        store.save_poll(1, PollResult(Outcome.ERROR, error="failed", collected_at=diagnostic.at,
+                                    diagnostics=[diagnostic], raw={"command": "RAW_SECRET"}), [])
+    with HistoryStore(path) as store:
+        rows = store.observations(1)
+        assert len(rows) == 2
+        assert rows[1]["diagnostics"][0]["stage"] == "md_command"
+        assert "secret" not in rows[1]["diagnostics"][0]["message"]
+        for many in (False, True):
+            args = ([1],) if many else (1,)
+            prefix = "export_many_" if many else "export_"
+            csv_path = getattr(store, prefix + "csv")(*args, tmp_path / f"{many}.csv")
+            with csv_path.open(encoding="utf-8-sig", newline="") as handle:
+                records = list(csv.DictReader(handle))
+            assert records[-1]["진단 단계"] == "md_command"
+            assert records[-1]["진단 단계명"] == "WLC 명령 실행"
+            assert records[-1]["진단 코드"] == "'=BAD"
+            assert records[-1]["진단 장비"] == "'@WLC"
+            assert records[-1]["진단 명령"] == "show user-table"
+            html_path = getattr(store, prefix + "html")(*args, tmp_path / f"{many}.html")
+            report = html_path.read_text(encoding="utf-8")
+            assert "<script>" not in report
+            assert "&lt;script&gt;" in report
+            assert "secret" not in report
+    assert b"RAW_SECRET" not in path.read_bytes()
+
+
+@pytest.mark.parametrize("encoded", ["invalid", "{}", '[null]', '[{"stage": 1}]', '"oops"', '[' * 2000])
+def test_corrupt_diagnostics_are_unavailable_instead_of_crashing(tmp_path, encoded):
+    with HistoryStore(tmp_path / "history.sqlite3") as store:
+        session = store.start_session(IP.value)
+        store.save_poll(session, PollResult(Outcome.ERROR), [])
+        with store._db:
+            store._db.execute("UPDATE polls SET diagnostics = ?", (encoded,))
+        row = store.observations(session)[0]
+        assert row["diagnostics"][0]["code"] == "diagnostics_unavailable"
+        for prefix, selection in (("export_", session), ("export_many_", [session])):
+            for kind in ("csv", "html"):
+                path = getattr(store, prefix + kind)(selection, tmp_path / f"{prefix}.{kind}")
+                assert "진단 기록 확인 불가" in path.read_text(encoding="utf-8-sig")
+
+
+def test_diagnostics_and_events_rollback_together_on_save_failure(tmp_path):
+    from aruba_client_live_tracker.models import Diagnostic
+
+    with HistoryStore(tmp_path / "history.sqlite3") as store:
+        session = store.start_session(IP.value)
+        result = PollResult(Outcome.ERROR, diagnostics=[Diagnostic("auth", "auth_failed", "인증 실패")])
+        with pytest.raises(ValueError):
+            store.save_poll(session, result, [Event("failure", "failed", at="not a timestamp")])
+        assert store.observations(session) == []
+        assert store.events(session) == []
+
+
+def test_diagnostics_combined_identity_order_and_bounds(tmp_path):
+    import json
+
+    from aruba_client_live_tracker.models import Diagnostic
+
+    with HistoryStore(tmp_path / "history.sqlite3") as store:
+        ids = [store.start_session(ip) for ip in ("192.0.2.100", "192.0.2.101")]
+        for index in (1, 0):
+            at = f"2026-01-02T00:00:0{index}Z"
+            diagnostics = [Diagnostic("connect", "failed", "safe", device_name="  =unsafe", at=at),
+                           Diagnostic("auth", "denied", "x" * 5000, at=at)]
+            store.save_poll(ids[index], PollResult(Outcome.ERROR, collected_at=at, diagnostics=diagnostics), [])
+        path = store.export_many_csv(reversed(ids), tmp_path / "diagnostics.csv")
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert [int(row["세션 ID"]) for row in rows] == ids
+        assert [row["대상 IP"] for row in rows] == ["192.0.2.100", "192.0.2.101"]
+        assert all(row["진단 장비"].startswith("'  =unsafe") for row in rows)
+        assert all(row["진단 단계"] == "connect\nauth" for row in rows)
+        assert len(store.observations(ids[0])[0]["diagnostics"][1]["message"]) == 2048
+        for encoded in (json.dumps([{}] * 129), " " * (512 * 1024 + 1)):
+            with store._db:
+                store._db.execute("UPDATE polls SET diagnostics = ?", (encoded,))
+            assert store.observations(ids[0])[0]["diagnostics"][0]["code"] == "diagnostics_unavailable"

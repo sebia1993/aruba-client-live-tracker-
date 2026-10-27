@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import html
 import json
+import re
 import sqlite3
 import threading
 from bisect import bisect_right
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from .commands import parse_target
-from .models import Event, PollResult, utc_now
+from .models import DIAGNOSTIC_STAGE_LABELS, Diagnostic, Event, PollResult, utc_now
 
 UNKNOWN = "확인 불가"
 _FIELDS = (
@@ -32,11 +33,66 @@ _FIELDS = (
     ("source", "수집 출처"),
 )
 _OUTCOMES = {"ok": "정상 조회", "absent": "미접속 관측", "error": "조회 실패", "ambiguous": "선택 필요"}
+_DIAGNOSTIC_FIELDS = (
+    ("stage", "진단 단계"), ("label", "진단 단계명"), ("code", "진단 코드"),
+    ("device_name", "진단 장비"), ("endpoint", "진단 접속 주소"),
+    ("command", "진단 명령"), ("message", "진단 메시지"),
+    ("at", "진단 시각"), ("severity", "진단 심각도"),
+)
+_MAX_DIAGNOSTICS = 128
+_MAX_DIAGNOSTIC_TEXT = 2048
+_MAX_DIAGNOSTIC_JSON = 512 * 1024
+_CREDENTIAL = re.compile(
+    r"(?i)(password|passwd|passphrase|secret|token|credential|authorization|username|api_key|private_key)"
+    r"(\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+)
+
+
+def _safe_diagnostic(item: dict) -> dict[str, str]:
+    # The persisted schema is deliberately closed: never copy raw/credential keys.
+    fields = ("stage", "code", "message", "device_name", "endpoint", "command", "at", "severity")
+    if any(not isinstance(item.get(key, ""), str) for key in fields):
+        raise ValueError("invalid diagnostic")
+    if any(key not in item for key in ("stage", "code", "message")):
+        raise ValueError("invalid diagnostic")
+    return {key: _CREDENTIAL.sub(r"\1\2[삭제됨]", item.get(key, ""))[:_MAX_DIAGNOSTIC_TEXT]
+            for key in fields}
+
+
+def _unavailable_diagnostics() -> list[dict[str, str]]:
+    return [asdict(Diagnostic("storage", "diagnostics_unavailable", "진단 기록 확인 불가", at=""))]
+
+
+def _read_diagnostics(encoded: str) -> list[dict[str, str]]:
+    try:
+        if not isinstance(encoded, str) or len(encoded) > _MAX_DIAGNOSTIC_JSON:
+            raise ValueError("diagnostics too large")
+        data = json.loads(encoded)
+        if not isinstance(data, list) or len(data) > _MAX_DIAGNOSTICS:
+            raise ValueError("invalid diagnostic list")
+        if any(not isinstance(item, dict) for item in data):
+            raise ValueError("invalid diagnostic item")
+        return [_safe_diagnostic(item) for item in data]
+    except (ValueError, TypeError, RecursionError):
+        return _unavailable_diagnostics()
+
+
+def _diagnostic_values(row: dict) -> list[str | None]:
+    diagnostics = row.get("diagnostics", [])
+    values = []
+    for key, _ in _DIAGNOSTIC_FIELDS:
+        entries = [DIAGNOSTIC_STAGE_LABELS.get(item["stage"], UNKNOWN) if key == "label"
+                   else item.get(key, "") for item in diagnostics]
+        values.append("\n".join(entries) if entries else None)
+    return values
+
+
 _COMBINED_HEADERS = [
     "세션 ID", "검색 조건", "대상 IP", "대상 MAC", "대상 식별 관측 시각",
     "기록 유형", "수집 시각", "유효 관측 시각", "상태", "가상 데이터", "오류",
     *[label for _, label in _FIELDS], "항목별 상태", "수집 근거/항목별 관측 시각",
     "이벤트", "관측 사실", "추정 원인", "추가 확인 사항",
+    *[label for _, label in _DIAGNOSTIC_FIELDS],
 ]
 
 
@@ -105,7 +161,7 @@ class HistoryStore:
                     id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id),
                     collected_at TEXT NOT NULL, outcome TEXT NOT NULL,
                     error TEXT NOT NULL, mm_status TEXT NOT NULL, md_status TEXT NOT NULL,
-                    observation TEXT
+                    observation TEXT, diagnostics TEXT NOT NULL DEFAULT '[]'
                 );
                 CREATE INDEX IF NOT EXISTS polls_session_time ON polls(session_id, collected_at);
                 CREATE TABLE IF NOT EXISTS events (
@@ -114,6 +170,18 @@ class HistoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS events_session_time ON events(session_id, at);
             """)
+        # Serialize schema inspection and ALTER across processes. SQLite DDL is
+        # transactional only with an explicit transaction, not executescript().
+        try:
+            self._db.execute("BEGIN IMMEDIATE")
+            columns = {row["name"] for row in self._db.execute("PRAGMA table_info(polls)")}
+            if "diagnostics" not in columns:
+                self._db.execute("ALTER TABLE polls ADD COLUMN diagnostics TEXT NOT NULL DEFAULT '[]'")
+            self._db.commit()
+        except Exception:
+            self._db.rollback()
+            self._db.close()
+            raise
 
     def __enter__(self) -> HistoryStore:
         return self
@@ -144,13 +212,17 @@ class HistoryStore:
         observation = None
         if result.observation is not None:
             observation = json.dumps(asdict(result.observation), ensure_ascii=False, allow_nan=False)
+        diagnostics = [_safe_diagnostic(asdict(item)) for item in result.diagnostics[:_MAX_DIAGNOSTICS]]
+        diagnostics_json = json.dumps(diagnostics, ensure_ascii=False, allow_nan=False)
+        if len(diagnostics_json) > _MAX_DIAGNOSTIC_JSON:
+            diagnostics_json = json.dumps(_unavailable_diagnostics(), ensure_ascii=False)
         with self._lock, self._db:
             self._ensure_open()
             self._db.execute(
-                "INSERT INTO polls(session_id, collected_at, outcome, error, mm_status, md_status, observation) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO polls(session_id, collected_at, outcome, error, mm_status, md_status, observation, diagnostics) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (session_id, _instant(result.collected_at), str(result.outcome), result.error,
-                 result.mm_status, result.md_status, observation),
+                 result.mm_status, result.md_status, observation, diagnostics_json),
             )
             self._db.executemany("INSERT INTO events(session_id, at, data) VALUES (?, ?, ?)", [
                 (session_id, _instant(event.at), json.dumps(asdict(event), ensure_ascii=False, allow_nan=False))
@@ -185,6 +257,7 @@ class HistoryStore:
         output = []
         for row in rows:
             item = dict(row)
+            item["diagnostics"] = _read_diagnostics(item.get("diagnostics", "[]"))
             encoded = item.pop("observation")
             parsed = json.loads(encoded) if encoded else {}
             # Distinguish a successful field's timestamp from the poll-attempt time.
@@ -221,19 +294,21 @@ class HistoryStore:
             writer = csv.writer(handle)
             writer.writerow(["기록 유형", "수집 시각", "유효 관측 시각", "상태", "가상 데이터", "오류",
                              *[label for _, label in _FIELDS], "항목별 상태", "수집 근거/항목별 관측 시각",
-                             "이벤트", "관측 사실", "추정 원인", "추가 확인 사항"])
+                             "이벤트", "관측 사실", "추정 원인", "추가 확인 사항",
+                             *[label for _, label in _DIAGNOSTIC_FIELDS]])
             for row in self.observations(session_id, start, end):
                 writer.writerow([_csv_safe(value) for value in [
                     "관측", row["collected_at"], row.get("observed_at"),
                     _OUTCOMES.get(row["outcome"], row["outcome"]), bool(session["simulated"]), row["error"],
                     *[_field_value(row, key) for key, _ in _FIELDS], row.get("field_status"),
                     row.get("evidence"), None, None, "원인 미확인", None,
+                    *_diagnostic_values(row),
                 ]])
             for event in self.events(session_id, start, end):
                 writer.writerow([_csv_safe(value) for value in [
                     "이벤트", event["at"], None, event["severity"], bool(session["simulated"]), None,
                     *[None for _ in _FIELDS], None, None, event["message"], event["facts"], event["hypothesis"],
-                    event["recommendation"],
+                    event["recommendation"], *[None for _ in _DIAGNOSTIC_FIELDS],
                 ]])
         return destination
 
@@ -251,7 +326,7 @@ class HistoryStore:
                   "<title>Aruba 클라이언트 추적 보고서</title><style>",
                   "body{font-family:'Malgun Gothic',sans-serif;background:#101823;color:#e7eef7;"
                   "margin:24px;line-height:1.6}table{border-collapse:collapse;width:100%;margin:16px 0}"
-                  "th,td{border:1px solid #425169;padding:8px;text-align:left;vertical-align:top}"
+                  "th,td{border:1px solid #425169;padding:8px;text-align:left;vertical-align:top;white-space:pre-line}"
                   "th{background:#203047}section{overflow:auto}.notice{color:#ffd175}"
                   "dt{font-weight:bold}dd{margin-bottom:8px}h1,h2{color:#7cdaeb}</style>",
                   "<h1>Aruba Client Live Tracker 보고서</h1>",
@@ -263,11 +338,13 @@ class HistoryStore:
                   "이전 조회값은 현재 측정값이 아니며, 항목별 상태와 수집 근거에 기록된 관측 시각을 확인하십시오.</p>",
                   "<h2>관측 사실</h2><section><table><thead><tr><th>수집 시각</th><th>유효 관측 시각</th><th>상태</th>"]
         pieces.extend(f"<th>{escape(label)}</th>" for _, label in _FIELDS)
-        pieces.append("<th>수집 오류</th><th>항목별 상태</th><th>수집 근거/항목별 관측 시각</th></tr></thead><tbody>")
+        pieces.append("<th>수집 오류</th><th>항목별 상태</th><th>수집 근거/항목별 관측 시각</th>")
+        pieces.extend(f"<th>{escape(label)}</th>" for _, label in _DIAGNOSTIC_FIELDS)
+        pieces.append("</tr></thead><tbody>")
         for row in observations:
             values = [row["collected_at"], row.get("observed_at"), _OUTCOMES.get(row["outcome"], row["outcome"]),
                       *[_field_value(row, key) for key, _ in _FIELDS], row["error"],
-                      row.get("field_status"), row.get("evidence")]
+                      row.get("field_status"), row.get("evidence"), *_diagnostic_values(row)]
             pieces.append("<tr>" + "".join(f"<td>{escape(value)}</td>" for value in values) + "</tr>")
         pieces.append("</tbody></table></section><h2>이벤트 및 추가 확인</h2>")
         for event in events:
@@ -333,19 +410,20 @@ class HistoryStore:
                               bool(session["simulated"]), row["error"],
                               *[_field_value(row, key) for key, _ in _FIELDS],
                               row.get("field_status"), row.get("evidence"),
-                              None, None, "원인 미확인", None]
+                              None, None, "원인 미확인", None, *_diagnostic_values(row)]
                     timeline.append((row["collected_at"], 0, row["id"], values))
                 for event in events:
                     at = _instant(event["at"])
                     values = [*identity(at), "이벤트", event["at"], None, event["severity"],
                               bool(session["simulated"]), None, *[None for _ in _FIELDS],
                               None, None, event["message"], event["facts"], event["hypothesis"],
-                              event["recommendation"]]
+                              event["recommendation"], *[None for _ in _DIAGNOSTIC_FIELDS]]
                     timeline.append((at, 1, event["id"], values))
                 if not observations and not events:
                     values = [*identity(None), "세션", None, None, "기간 내 기록 없음",
                               bool(session["simulated"]), None, *[None for _ in _FIELDS],
-                              None, None, None, None, "원인 미확인", None]
+                              None, None, None, None, "원인 미확인", None,
+                              *[None for _ in _DIAGNOSTIC_FIELDS]]
                     timeline.append(("~", 2, session_id, values))
         timeline.sort(key=lambda entry: entry[:3])
         return [entry[3] for entry in timeline]
@@ -375,7 +453,7 @@ class HistoryStore:
                   "body{font-family:'Malgun Gothic',sans-serif;background:#101823;color:#e7eef7;"
                   "margin:24px;line-height:1.6}section{overflow:auto}table{border-collapse:collapse;"
                   "width:100%}th,td{border:1px solid #425169;padding:8px;text-align:left;"
-                  "vertical-align:top}th{background:#203047}h1{color:#7cdaeb}</style>",
+                  "vertical-align:top;white-space:pre-line}th{background:#203047}h1{color:#7cdaeb}</style>",
                   "<h1>Aruba Client Live Tracker 통합 보고서</h1>",
                   f"<p>내보내기 기간: {escape(start)} ~ {escape(end)}</p>",
                   "<p>기록은 수집 시각순이며 시간은 UTC 오프셋이 포함된 ISO 8601 형식입니다. "

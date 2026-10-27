@@ -137,3 +137,52 @@ def test_client_table_rejects_inactive_or_other_ap(state, bssid):
         [MAC, "LAB-WIFI", bssid, state, "100", "100"]], "")
     with pytest.raises(ParseError):
         parse_client_table(output, MAC, expected_bssid="02:00:00:00:10:01")
+
+
+@pytest.mark.parametrize("ip_label", ["IP", "IP Address"])
+@pytest.mark.parametrize("mac_label", ["MAC", "MAC Address"])
+def test_explicit_address_header_aliases(ip_label, mac_label):
+    # Synthetic variant: only these exact labels are aliases; required fields remain.
+    output = table([ip_label, mac_label, "Current switch", "Role"],
+                   [["192.0.2.100", MAC, "192.0.2.20", "lab-role"]])
+    assert parse_global_users(output, parse_target(MAC))[0].mac == MAC
+    user = table([ip_label, mac_label, "Role"], [["192.0.2.100", MAC, "lab-role"]])
+    assert parse_user(user, MAC).ip == "192.0.2.100"
+    detail = f"{ip_label}: 192.0.2.100, {mac_label}: {MAC}, Role: lab-role"
+    assert parse_user(detail, MAC).role == "lab-role"
+
+
+@pytest.mark.parametrize("parser", ["global", "user"])
+@pytest.mark.parametrize("fault", ["truncated", "count", "duplicate_columns", "missing_role", "bad_ip", "bad_mac"])
+def test_address_aliases_remain_fail_closed(parser, fault):
+    headers = ["IP Address", "MAC Address", "Role"]
+    rows = [["192.0.2.100", MAC, "lab-role"]]
+    if parser == "global":
+        headers.append("Current switch")
+        rows[0].append("192.0.2.20")
+    if fault == "duplicate_columns":
+        headers.append("IP")
+        rows[0].append("192.0.2.101")
+    elif fault == "missing_role":
+        headers[2] = "Other"
+    elif fault == "bad_ip":
+        rows[0][0] = "999.0.2.1"
+    elif fault == "bad_mac":
+        rows[0][1] = "02:bad"
+    output = table(headers, rows)
+    if fault == "truncated":
+        output = output.split("Total entries")[0]
+    elif fault == "count":
+        output = output.replace("Total entries = 1", "Total entries = 2")
+    with pytest.raises(ParseError):
+        if parser == "global":
+            parse_global_users(output, parse_target(MAC))
+        else:
+            parse_user(output, MAC)
+
+
+def test_address_alias_does_not_hide_duplicate_md_rows():
+    row = ["192.0.2.100", MAC, "lab-role"]
+    output = table(["IP Address", "MAC Address", "Role"], [row, row])
+    with pytest.raises(ParseError):
+        parse_user(output, MAC)

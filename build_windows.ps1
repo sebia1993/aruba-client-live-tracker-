@@ -1,4 +1,4 @@
-param([string]$Version = "0.2.0", [switch]$SkipInstall)
+param([string]$Version = "0.3.0", [switch]$SkipInstall)
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 if ($PSVersionTable.PSVersion.Major -ge 6 -and -not $IsWindows) { throw "Windows에서 실행하십시오." }
@@ -13,7 +13,7 @@ if (-not $SkipInstall) {
 }
 Invoke-Python -c "from aruba_client_live_tracker import __version__; assert __version__ == '$Version', '패키지 버전 불일치'"
 Invoke-Python scripts/check_dependencies.py
-Invoke-Python -m pytest -q
+Invoke-Python -m pytest -q --junitxml=artifacts/pytest-windows-build.xml
 Invoke-Python -m ruff check src tests scripts
 # Fail clearly if a previously built EXE/DLL is still locked by a running process.
 $packageDir = Join-Path $PSScriptRoot 'dist/ArubaClientLiveTracker'
@@ -34,7 +34,7 @@ Get-ChildItem $sourceDir -Recurse -Directory | Where-Object { $_.Name -eq "__pyc
 $validationDir = Join-Path $PSScriptRoot 'dist/validation'
 if (Test-Path $validationDir) { Remove-Item $validationDir -Recurse -Force }
 New-Item $validationDir -ItemType Directory -Force | Out-Null
-Copy-Item artifacts/dependency-advisories.json $validationDir/
+Copy-Item artifacts/dependency-advisories.json,artifacts/pytest-windows-build.xml $validationDir/
 $exe = Join-Path $packageDir 'ArubaClientLiveTracker.exe'
 $previousPlatform = $env:QT_QPA_PLATFORM
 $env:QT_QPA_PLATFORM = 'offscreen'

@@ -27,3 +27,40 @@ def test_reject_secret_and_duplicate_primary(tmp_path):
         load_devices(path)
     with pytest.raises(ValueError):
         save_devices(path, [Device('a','192.0.2.1','MM_PRIMARY'), Device('b','192.0.2.2','MM_PRIMARY')])
+
+
+def test_v1_load_preserves_manual_defaults(tmp_path):
+    path = tmp_path / 'settings.json'
+    path.write_text(json.dumps({'version': 1, 'devices': [{'name': 'LAB', 'host': '192.0.2.1'}]}))
+    assert load_devices(path) == [Device('LAB', '192.0.2.1')]
+
+
+def test_v2_identity_roundtrip(tmp_path):
+    from aruba_client_live_tracker.models import DeviceIdentity
+    path = tmp_path / 'settings.json'
+    devices = [Device('LAB', '192.0.2.1', 'AUTO', identity=DeviceIdentity(
+        hostname='LAB-MM', switch_ip='192.0.2.10', reported_role='master',
+        model='ArubaMM-VA', version='8.10.0.0', observed_at='2026-10-27T00:00:00+00:00',
+        source='show switchinfo'), origin='discovered')]
+    save_devices(path, devices)
+    assert json.loads(path.read_text())['version'] == 2
+    assert load_devices(path) == devices
+
+
+@pytest.mark.parametrize('extra', [
+    {'origin': 'unknown'}, {'identity': {'password': 'synthetic-secret'}},
+    {'identity': {'switch_ip': 'bad-ip'}}, {'identity': {'hostname': 'bad\nname'}},
+    {'identity': {'version': 'x' * 257}}, {'identity': 'bad'},
+    {'username': 'synthetic-user'}, {'kind': 'AUTO', 'enabled': 1},
+])
+def test_v2_metadata_validation(tmp_path, extra):
+    path = tmp_path / 'settings.json'
+    path.write_text(json.dumps({'version': 2, 'devices': [{'name': 'LAB', 'host': '192.0.2.1', **extra}]}))
+    with pytest.raises(ValueError):
+        load_devices(path)
+
+
+def test_multiple_auto_entries_allowed(tmp_path):
+    devices = [Device('a', '192.0.2.1', 'AUTO'), Device('b', '192.0.2.2', 'AUTO')]
+    save_devices(tmp_path / 'settings.json', devices)
+    assert load_devices(tmp_path / 'settings.json') == devices

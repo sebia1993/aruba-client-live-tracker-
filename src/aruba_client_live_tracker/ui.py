@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .models import Credentials, Device, Observation, Outcome, PollResult, utc_now
+from .models import DIAGNOSTIC_STAGE_LABELS, Credentials, Device, Observation, Outcome, PollResult, utc_now
 
 STYLE = """
 QWidget { background: #0e1421; color: #dce5f4; font-family: 'Malgun Gothic', 'Noto Sans CJK KR', sans-serif; font-size: 13px; }
@@ -99,7 +99,7 @@ def table(headers: list[str]) -> QTableWidget:
     return widget
 
 
-def add_row(widget: QTableWidget, values: list, maximum: int = 500) -> None:
+def add_row(widget: QTableWidget, values: list, maximum: int = 500, *, scroll: bool = True) -> None:
     row = widget.rowCount()
     widget.insertRow(row)
     for column, value in enumerate(values):
@@ -108,7 +108,8 @@ def add_row(widget: QTableWidget, values: list, maximum: int = 500) -> None:
         widget.setItem(row, column, item)
     while widget.rowCount() > maximum:
         widget.removeRow(0)
-    widget.scrollToBottom()
+    if scroll:
+        widget.scrollToBottom()
 
 
 class SignalChart(QWidget):
@@ -193,6 +194,7 @@ class SignalChart(QWidget):
 class DeviceDialog(QDialog):
     def __init__(self, parent=None, device: Device | None = None):
         super().__init__(parent)
+        self.original = device
         self.setWindowTitle("장비 등록 / 수정")
         self.resize(460, 360)
         layout = QFormLayout(self)
@@ -202,17 +204,24 @@ class DeviceDialog(QDialog):
         self.port_edit.setRange(1, 65535)
         self.port_edit.setValue(device.port if device else 22)
         self.kind_edit = QComboBox()
-        for label, value in (("MM Primary", "MM_PRIMARY"), ("MM Standby", "MM_STANDBY"), ("MD", "MD")):
+        for label, value in (("자동 판별 (AUTO)", "AUTO"), ("MM Primary", "MM_PRIMARY"), ("MM Standby", "MM_STANDBY"), ("MD / WLC", "MD")):
             self.kind_edit.addItem(label, value)
-        self.kind_edit.setCurrentIndex(self.kind_edit.findData(device.kind if device else "MD"))
+        self.kind_edit.setCurrentIndex(self.kind_edit.findData(device.kind if device else "AUTO"))
         self.enabled_edit = QCheckBox("이 장비 사용")
         self.enabled_edit.setChecked(device.enabled if device else True)
         self.mappings_edit = QLineEdit(", ".join(device.mappings) if device else "")
         self.mappings_edit.setPlaceholderText("MM Current switch 값, 여러 값은 쉼표로 구분")
         for label, widget in (("장비 이름", self.name_edit), ("관리 IP", self.host_edit), ("SSH 포트", self.port_edit),
-                              ("장비 유형", self.kind_edit), ("사용 여부", self.enabled_edit), ("담당 MD 매핑", self.mappings_edit)):
+                              ("사용 여부", self.enabled_edit)):
             layout.addRow(label, widget)
-        note = QLabel("매핑은 MM이 반환하는 Current switch 값입니다. SSH 관리 IP와 다르면 MD에 매핑을 추가하세요.")
+        self.advanced = QGroupBox("고급 설정 · 수동 역할 / MD 매핑")
+        self.advanced.setCheckable(True)
+        self.advanced.setChecked(bool(device and (device.kind != "AUTO" or device.mappings)))
+        advanced_layout = QFormLayout(self.advanced)
+        advanced_layout.addRow("장비 유형", self.kind_edit)
+        advanced_layout.addRow("담당 MD 매핑", self.mappings_edit)
+        layout.addRow(self.advanced)
+        note = QLabel("기본은 자동 판별입니다. 판별 전에는 추적에서 제외됩니다. MM 발견 화면에서 장비를 검사하거나 고급 설정에서 역할을 지정하세요. 매핑은 MM의 Current switch 값입니다.")
         note.setWordWrap(True)
         layout.addRow(note)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
@@ -223,26 +232,59 @@ class DeviceDialog(QDialog):
         layout.addRow(buttons)
 
     def device(self) -> Device:
-        return Device(self.name_edit.text().strip(), self.host_edit.text().strip(), self.kind_edit.currentData(),
-                      self.port_edit.value(), self.enabled_edit.isChecked(),
-                      tuple(v.strip() for v in self.mappings_edit.text().split(",") if v.strip()))
+        values = dict(name=self.name_edit.text().strip(), host=self.host_edit.text().strip(),
+                      kind=self.kind_edit.currentData(), port=self.port_edit.value(), enabled=self.enabled_edit.isChecked(),
+                      mappings=tuple(v.strip() for v in self.mappings_edit.text().split(",") if v.strip()))
+        if self.original:
+            if any(getattr(self.original, key) != value for key, value in values.items()):
+                values['origin'] = 'manual'
+            if (values['host'], values['port']) != (self.original.host, self.original.port):
+                values['identity'] = None
+                if self.original.origin == 'discovered' and values['kind'] == self.original.kind:
+                    values['kind'] = 'AUTO'
+            return replace(self.original, **values)
+        return Device(**values)
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, devices: list[Device], settings_path: Path, parent=None):
+    def __init__(self, devices: list[Device], settings_path: Path, parent=None, credentials_provider=None, known_hosts=None):
         super().__init__(parent)
         self.setWindowTitle("장비 연결 설정")
-        self.resize(900, 420)
+        self.resize(1080, 640)
         self.devices = list(devices)
         self.settings_path = settings_path
+        self.credentials_provider = credentials_provider
+        self.known_hosts = known_hosts or settings_path.parent / "known_hosts"
         layout = QVBoxLayout(self)
-        notice = QLabel("SSH 계정과 비밀번호는 추적 시작 시 입력하며 파일에 저장하지 않습니다. 신뢰한 서버 키는 이 PC에 저장됩니다.")
+        notice = QLabel("공통 SSH 계정은 이번 실행에서 발견·검사·추적에 재사용하며 파일에 저장하지 않습니다. 최초 서버 키는 자동 저장하고 변경된 키는 차단합니다.")
         notice.setWordWrap(True)
         layout.addWidget(notice)
-        self.grid = table(["장비 이름", "관리 IP", "포트", "유형", "사용", "담당 MD 매핑"])
+        seed_box = QGroupBox("MM으로 간편 등록")
+        seed_layout = QFormLayout(seed_box)
+        seed = next((d for d in devices if d.kind in {"MM_PRIMARY", "MM_STANDBY"}), None)
+        self.seed_name = QLineEdit(seed.name if seed else "")
+        self.seed_name.setPlaceholderText("예: 본사 MM")
+        self.seed_host = QLineEdit(seed.host if seed else "")
+        self.seed_host.setPlaceholderText("MM 관리 IP")
+        self.seed_port = QSpinBox()
+        self.seed_port.setRange(1, 65535)
+        self.seed_port.setValue(seed.port if seed else 22)
+        seed_layout.addRow("MM 이름", self.seed_name)
+        seed_layout.addRow("MM 관리 IP", self.seed_host)
+        seed_layout.addRow("SSH 포트", self.seed_port)
+        self.discover_button = QPushButton("MM에서 장비 찾기")
+        self.discover_button.setObjectName("primary")
+        self.discover_button.clicked.connect(self.discover_devices)
+        seed_layout.addRow(self.discover_button)
+        layout.addWidget(seed_box)
+        self.grid = table(["장비 이름", "관리 IP", "포트", "유형", "모델 / 버전", "사용 / 상태", "담당 MD 매핑"])
         layout.addWidget(self.grid)
+        self.discovery_note = QLabel("개별 등록은 AUTO가 기본이며, 판별 불가 장비는 추적에서 제외됩니다.")
+        self.discovery_note.setTextFormat(Qt.TextFormat.PlainText)
+        self.discovery_note.setWordWrap(True)
+        layout.addWidget(self.discovery_note)
         controls = QHBoxLayout()
-        for label, callback in (("등록", self.add_device), ("수정", self.edit_device), ("삭제", self.delete_device), ("저장 후 닫기", self.save)):
+        for label, callback in (("개별 등록", self.add_device), ("선택 장비 판별", self.probe_device), ("수정", self.edit_device), ("삭제", self.delete_device), ("저장 후 닫기", self.save)):
             button = QPushButton(label)
             button.clicked.connect(callback)
             controls.addWidget(button)
@@ -252,7 +294,53 @@ class SettingsDialog(QDialog):
     def render(self):
         self.grid.setRowCount(0)
         for device in self.devices:
-            add_row(self.grid, [device.name, device.host, device.port, device.kind, "사용" if device.enabled else "중지", ", ".join(device.mappings)])
+            identity = device.identity
+            add_row(self.grid, [device.name, device.host, device.port,
+                "판별 불가 (AUTO)" if device.kind == "AUTO" else device.kind,
+                f"{identity.model} / {identity.version}" if identity else "확인 불가",
+                "역할 판별 필요 · 추적 제외" if device.kind == "AUTO" else "사용" if device.enabled else "중지",
+                ", ".join(device.mappings)], maximum=max(1000, len(self.devices)), scroll=False)
+
+    def discover_devices(self):
+        from ipaddress import ip_address
+
+        from .ui_discovery import DiscoveryDialog, diagnostic_text
+        name, host = self.seed_name.text().strip(), self.seed_host.text().strip()
+        try:
+            if not name or len(name) > 100 or any(ord(c) < 32 for c in name):
+                raise ValueError
+            ip_address(host)
+        except ValueError:
+            QMessageBox.warning(self, "MM 입력 확인", "MM 이름과 유효한 관리 IP를 입력하세요.")
+            return
+        if self.credentials_provider is None:
+            QMessageBox.warning(self, "계정 입력 필요", "메인 화면의 장비 연결 설정에서 공통 SSH 계정을 입력하세요.")
+            return
+        credentials = self.credentials_provider()
+        if credentials is None:
+            return
+        dialog = DiscoveryDialog(Device(name, host, "AUTO", self.seed_port.value()), self.devices,
+                                 credentials, self.known_hosts, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.devices = dialog.devices
+            self.render()
+            self.discovery_note.setText(diagnostic_text(dialog.diagnostics) or "선택 장비를 등록했습니다. 저장 후 닫기를 눌러 적용하세요.")
+
+    def probe_device(self):
+        from .ui_discovery import DiscoveryDialog, diagnostic_text
+        index = self.grid.currentRow()
+        if index < 0 or self.credentials_provider is None:
+            return
+        credentials = self.credentials_provider()
+        if credentials is None:
+            return
+        device = self.devices[index]
+        dialog = DiscoveryDialog(device, self.devices, credentials, self.known_hosts, self,
+                                 initial_devices=[device])
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.devices = dialog.devices
+            self.render()
+            self.discovery_note.setText(diagnostic_text(dialog.diagnostics) or "장비 역할 검사를 반영했습니다. 저장 후 닫기를 눌러 적용하세요.")
 
     def add_device(self):
         dialog = DeviceDialog(self)
@@ -370,7 +458,6 @@ class HistoryDialog(QDialog):
 
 class _Dashboard(QMainWindow):
     poll_applied = Signal(object)
-    host_key_requested = Signal(object)
 
     def __init__(self, data_path: Path | None = None, demo: bool = True):
         super().__init__()
@@ -410,7 +497,6 @@ class _Dashboard(QMainWindow):
         self._build(demo)
         if settings_error:
             self.status_note.setText(settings_error)
-        self.host_key_requested.connect(self._approve_key)
         self.timer = QTimer(self)
         self.timer.setInterval(250)
         self.timer.timeout.connect(self._tick)
@@ -525,6 +611,9 @@ class _Dashboard(QMainWindow):
         self.settings_button = QPushButton("장비 연결 설정")
         self.settings_button.clicked.connect(self.open_settings)
         footer.addWidget(self.settings_button)
+        self.account_button = QPushButton("공통 SSH 계정 변경")
+        self.account_button.clicked.connect(self.change_account)
+        footer.addWidget(self.account_button)
         for label, callback in (("추적 이력 / 내보내기", self.open_history), ("CLI 원문 / 진단", self.open_diagnostics), ("사용자 도움말", self.open_help)):
             button = QPushButton(label)
             button.clicked.connect(callback)
@@ -576,6 +665,7 @@ class _Dashboard(QMainWindow):
         self.pause_button.setEnabled(self.active)
         self.refresh_button.setEnabled(self.active and self.worker is None and not self.selection_pending)
         self.settings_button.setEnabled(not self.active and self.worker is None and not self.selection_pending)
+        self.account_button.setEnabled(self.settings_button.isEnabled())
         self.mode.setEnabled(not self.active and self.worker is None and not self.selection_pending)
         self.scenario.setEnabled(bool(self.mode.currentData()) and not self.active)
         self.pause_button.setText("추적 재개" if self.paused else "일시 정지")
@@ -596,12 +686,17 @@ class _Dashboard(QMainWindow):
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addRow(buttons)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return None
-        if not username.text().strip() or not password.text():
-            QMessageBox.warning(self, "계정 확인", "SSH 사용자 이름과 비밀번호를 입력하세요.")
-            return None
-        return Credentials(username.text().strip(), password.text())
+        try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return None
+            if not username.text().strip() or not password.text():
+                QMessageBox.warning(self, "계정 확인", "SSH 사용자 이름과 비밀번호를 입력하세요.")
+                return None
+            return Credentials(username.text().strip(), password.text())
+        finally:
+            username.clear()
+            password.clear()
+            dialog.deleteLater()
 
     def _consume_result(self, result: PollResult):
         view = self.tracker.apply(result)
@@ -613,7 +708,7 @@ class _Dashboard(QMainWindow):
         self.mm_label.setText(f"MM · {result.mm_status}")
         self.md_label.setText(f"MD · {result.md_status}")
         self.connection_state.setText(f"{view.state}" + (" · 이전 조회값" if view.stale else ""))
-        self.status_note.setText(result.error or "관측 사실을 표시합니다. 장애 원인은 인증·AP·무선 환경을 함께 확인해야 합니다.")
+        self.status_note.setText(self._result_notice(result) or "관측 사실을 표시합니다. 장애 원인은 인증·AP·무선 환경을 함께 확인해야 합니다.")
         observation = view.observation
         if observation:
             for key, label in self.fields.items():
@@ -647,9 +742,18 @@ class _Dashboard(QMainWindow):
         self.poll_applied.emit(result)
 
     def open_settings(self):
-        dialog = SettingsDialog(self.devices, self.settings_path, self)
+        dialog = SettingsDialog(self.devices, self.settings_path, self,
+                                credentials_provider=self._shared_credentials,
+                                known_hosts=self.data_path / "known_hosts")
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.devices = dialog.devices
+
+    @staticmethod
+    def _result_notice(result):
+        if result.diagnostics:
+            diagnostic = result.diagnostics[-1]
+            return f"{DIAGNOSTIC_STAGE_LABELS.get(diagnostic.stage, diagnostic.stage)} · {diagnostic.message}"
+        return result.error
 
     def open_history(self):
         HistoryDialog(self.store, self).exec()
@@ -668,6 +772,9 @@ class _Dashboard(QMainWindow):
         if self.last_result:
             raw = self.last_result.raw
             sections = [f"수집 시각: {self.last_result.collected_at}\n상태: {self.last_result.outcome}\n안내: {self.last_result.error}"]
+            if self.last_result.diagnostics:
+                from .ui_discovery import diagnostic_text
+                sections.append("단계별 수집 진단\n" + diagnostic_text(self.last_result.diagnostics))
             if self.last_result.observation:
                 sections.append("항목별 수집 상태 / 근거\n" + json.dumps({"상태": self.last_result.observation.field_status, "근거": self.last_result.observation.evidence}, ensure_ascii=False, indent=2))
             sections.extend(f"조회: {command}\n{output}" for command, output in raw.items())
@@ -684,7 +791,7 @@ class _Dashboard(QMainWindow):
         layout = QVBoxLayout(dialog)
         text = QTextEdit()
         text.setReadOnly(True)
-        text.setPlainText("사용 순서\n\n1. 처음에는 데모 모드를 선택하고 추적 시작을 누르세요. 모든 데이터는 가상입니다.\n2. 실제 조회는 장비 연결 설정에서 MM Primary·Standby와 MD를 등록하세요. Current switch와 관리 IP가 다르면 매핑을 등록합니다.\n3. 장비 연결 모드를 선택하고 IPv4 또는 MAC을 입력하세요. SSH 계정은 실행 중에만 사용합니다.\n4. 최초 접속 시 서버 키 SHA-256 지문을 별도 신뢰 경로로 확인하세요. 변경된 키는 자동 승인하지 않습니다.\n5. 다중 모니터링에서는 최대 10개 대상을 등록하거나 여러 줄로 붙여넣습니다. 목록의 행을 선택하면 해당 대상의 기존 상세와 그래프가 표시됩니다. 선택 대상 또는 전체 시작·중지·일시 정지·재개·새로고침을 사용할 수 있습니다.\n6. 여러 클라이언트가 검색된 행은 검색 결과 선택 버튼을 눌러 직접 결정하세요. 다른 대상은 계속 수집합니다.\n7. 데모/장비 연결 모드와 단일/다중 추적, 시나리오, 장비 설정은 전체 중지 후 변경하세요. 이력에서 여러 세션을 선택해 통합 보고서를 저장할 수 있습니다.\n\n지표 읽기\n\nSNR은 신호와 잡음의 차이입니다. 마지막 패킷 시각의 값일 수 있으며 높은 값이 일반적으로 유리합니다.\nRSSI는 실제 신호 출처가 있을 때만 표시합니다. ClientMatch 과거값은 현재 RSSI로 사용하지 않습니다.\nTx/Rx PHY Rate는 무선 링크 속도이며 실제 다운로드/업로드 속도가 아닙니다.\nRole은 인증 이후 적용되는 접근 정책입니다. Role만으로 인증 성공이나 장애 원인을 단정하지 않습니다.\n\n실패와 연결 해제\n\n조회 실패 시 이전 조회값을 보존합니다. 그래프의 공백은 유효 관측이 없다는 뜻입니다. SSH 실패는 로밍·연결 해제로 기록하지 않습니다. 여러 정상 관측의 단말 부재로 연결 해제를 판단합니다.\n\n이력과 개인정보\n\nSQLite와 설정, 신뢰한 서버 키는 사용자별 로컬 데이터 폴더에 저장합니다. 추적 이력에서 기간을 선택해 CSV/HTML로 내보낼 수 있습니다. 원문·보고서에는 사용자 정보가 포함될 수 있으므로 공개 GitHub에 업로드하지 마세요. 외부 분석/자동 업로드 기능은 없습니다.\n\n검증 범위\n\nArubaOS CLI 지원과 권한, 출력 형식은 버전·실행 위치에 따라 다릅니다. 자동 테스트는 가상 출력 기반이며 실제 ArubaOS 8.10 장비 검증은 사용자가 수행해야 합니다.")
+        text.setPlainText("사용 순서\n\n1. 처음에는 데모 모드를 선택하고 추적 시작을 누르세요. 모든 데이터는 가상입니다.\n2. 장비 연결 설정에서 MM 이름·관리 IP를 입력하고 MM에서 장비 찾기를 누르세요. 선택 장비 검사 후 등록하고 저장합니다. 개별 등록의 기본 AUTO는 판별 전까지 추적에서 제외됩니다. 고급 설정에서 역할·매핑을 수동 지정할 수 있습니다.\n3. 장비 연결 모드를 선택하고 IPv4 또는 MAC을 입력하세요. SSH 계정은 실행 중에만 사용합니다.\n4. 최초 SSH 서버 키는 질문 없이 이 PC에 자동 저장합니다. 키가 변경되면 인증 전에 차단합니다. 공통 계정은 발견·추적에서 재사용하며 전체 중지 후 변경할 수 있습니다.\n5. 다중 모니터링에서는 최대 10개 대상을 등록하거나 여러 줄로 붙여넣습니다. 목록의 행을 선택하면 해당 대상의 기존 상세와 그래프가 표시됩니다. 선택 대상 또는 전체 시작·중지·일시 정지·재개·새로고침을 사용할 수 있습니다.\n6. 여러 클라이언트가 검색된 행은 검색 결과 선택 버튼을 눌러 직접 결정하세요. 다른 대상은 계속 수집합니다.\n7. 데모/장비 연결 모드와 단일/다중 추적, 시나리오, 장비 설정은 전체 중지 후 변경하세요. 이력에서 여러 세션을 선택해 통합 보고서를 저장할 수 있습니다.\n\n지표 읽기\n\nSNR은 신호와 잡음의 차이입니다. 마지막 패킷 시각의 값일 수 있으며 높은 값이 일반적으로 유리합니다.\nRSSI는 실제 신호 출처가 있을 때만 표시합니다. ClientMatch 과거값은 현재 RSSI로 사용하지 않습니다.\nTx/Rx PHY Rate는 무선 링크 속도이며 실제 다운로드/업로드 속도가 아닙니다.\nRole은 인증 이후 적용되는 접근 정책입니다. Role만으로 인증 성공이나 장애 원인을 단정하지 않습니다.\n\n실패와 연결 해제\n\n조회 실패 시 이전 조회값을 보존합니다. 그래프의 공백은 유효 관측이 없다는 뜻입니다. SSH 실패는 로밍·연결 해제로 기록하지 않습니다. 여러 정상 관측의 단말 부재로 연결 해제를 판단합니다.\n\n이력과 개인정보\n\nSQLite와 설정, 신뢰한 서버 키는 사용자별 로컬 데이터 폴더에 저장합니다. 추적 이력에서 기간을 선택해 CSV/HTML로 내보낼 수 있습니다. 원문·보고서에는 사용자 정보가 포함될 수 있으므로 공개 GitHub에 업로드하지 마세요. 외부 분석/자동 업로드 기능은 없습니다.\n\n검증 범위\n\nArubaOS CLI 지원과 권한, 출력 형식은 버전·실행 위치에 따라 다릅니다. 자동 테스트는 가상 출력 기반이며 실제 ArubaOS 8.10 장비 검증은 사용자가 수행해야 합니다.")
         layout.addWidget(text)
         dialog.exec()
 

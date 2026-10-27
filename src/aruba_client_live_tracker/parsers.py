@@ -22,6 +22,8 @@ class UnsupportedCommand(ParseError):
 
 _ERROR = re.compile(r"(?im)(?:^\s*%?\s*(?:Invalid (?:input|command)|Unknown command|Error:|Permission denied|Access denied)|command not supported|not supported on this)")
 _COUNT = re.compile(r"(?im)^\s*(?:Total\s+entries\s*=|Num\s+Clients\s*:)\s*(\d+)\s*$")
+# Explicit address-label aliases covered by synthetic fixtures; no positional fallback.
+_COLUMN_ALIASES = {"ipaddress": "ip", "macaddress": "mac"}
 _MAC = r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}"
 _PROMPT = re.compile(r"^\s*(?:\([^\r\n]{1,100}\)\s*)?[\^*]{0,2}\s*(?:\[[^\r\n]{1,100}\]\s*)?[A-Za-z0-9_.:^*-]*[#>]\s*$")
 
@@ -64,6 +66,7 @@ def _table(output: str, required: tuple[str, ...], *, require_count: bool = Fals
     else:
         starts = [m.start() for m in spans]
         names = [_key(header[start:starts[j + 1] if j + 1 < len(starts) else None].strip()) for j, start in enumerate(starts)]
+    names = [_COLUMN_ALIASES.get(name, name) for name in names]
     if len(names) != len(set(names)) or not all(_key(x) in names for x in required):
         raise ParseError("CLI 표의 열 위치가 올바르지 않습니다.")
     rows: list[dict[str, str]] = []
@@ -123,11 +126,11 @@ def parse_user(output: str, mac: str) -> Observation | None:
     mac = normalize_mac(mac)
     if re.fullmatch(r"\s*(?:No users found\.?|No matching users\.?)\s*", output, re.I):
         return None
-    detail_mac = _capture(r"(?:^|[,\n])\s*MAC\s*:\s*(" + _MAC + r")", output)
+    detail_mac = _capture(r"(?:^|[,\n])\s*MAC(?: Address)?\s*:\s*(" + _MAC + r")", output)
     if detail_mac:
         if normalize_mac(detail_mac) != mac:
             raise ParseError("응답 MAC이 선택한 단말과 일치하지 않습니다.")
-        ip = _capture(r"(?:^|[,\n])\s*IP\s*:\s*([0-9.]+)", output)
+        ip = _capture(r"(?:^|[,\n])\s*IP(?: Address)?\s*:\s*([0-9.]+)", output)
         try:
             ip = str(IPv4Address(ip)) if ip else None
         except ValueError as exc:
@@ -148,7 +151,15 @@ def parse_user(output: str, mac: str) -> Observation | None:
             ap_name=_capture(r"\bAP name/group:\s*([^/\n]+)", output),
         )
     rows = _table(output, ("IP", "MAC", "Role"), require_count=True)
-    matches = [r for r in rows if normalize_mac(r["mac"]) == mac]
+    try:
+        for row in rows:
+            row["ip"] = str(IPv4Address(row["ip"]))
+            row["mac"] = normalize_mac(row["mac"])
+            if not row["role"]:
+                raise ValueError("missing role")
+    except (KeyError, ValueError) as exc:
+        raise ParseError("MD 사용자 행의 필수 IP/MAC/Role을 확인할 수 없습니다.") from exc
+    matches = [r for r in rows if r["mac"] == mac]
     if not matches:
         return None
     if len(matches) != 1:

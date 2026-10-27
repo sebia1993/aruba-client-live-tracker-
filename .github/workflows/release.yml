@@ -38,7 +38,9 @@ jobs:
           name: windows-release-validation
           path: |
             artifacts/*.json
+            artifacts/*.xml
             dist/validation/*.json
+            dist/validation/*.xml
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:

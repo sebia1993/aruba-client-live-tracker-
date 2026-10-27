@@ -1,4 +1,5 @@
 # Aruba Client Live Tracker 구현 계획
+> v0.1.0 과거 구현 기록입니다. 현재 v0.3.0 계획은 [V030_IMPLEMENTATION_KO.md](V030_IMPLEMENTATION_KO.md), 현재 검증은 [BUILD_VALIDATION_KO.md](BUILD_VALIDATION_KO.md)를 따릅니다. 아래 승인 UI와 당시 배포 상태는 과거 동작입니다.
 
 사용자의 상세 명세와 자율 구현 지시에 따라 Python 3.12+, PySide6 Essentials, Paramiko, SQLite, PyInstaller onedir를 선택한다. 외부 서비스 없이 동작한다.
 

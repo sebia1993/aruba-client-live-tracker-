@@ -1,23 +1,32 @@
-"""Bounded, read-only Aruba interactive SSH with explicit first-use trust.
+"""Bounded read-only SSH with automatic, persistent trust on first use.
 
-The server key is checked by Paramiko before password authentication. No device
-configuration commands, automatic key acceptance, or session logging are used.
+Every handshake verifies or pins its key before password authentication. Changed
+keys and storage failures are terminal; trust is never delegated to a UI callback.
 """
 from __future__ import annotations
 
 import base64
+import binascii
+import errno
 import hashlib
-import inspect
 import os
 import re
 import socket
+import stat
+import struct
 import tempfile
 import threading
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 
 import paramiko
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from .commands import validate_command
 from .models import Credentials, Device
@@ -47,16 +56,109 @@ def fingerprint_sha256(key: paramiko.PKey) -> str:
 
 def _known_keys(path: Path) -> paramiko.HostKeys:
     keys = paramiko.HostKeys()
-    if path.is_symlink():
-        raise SSHError("KNOWN_HOSTS_INVALID", "SSH 키 파일의 심볼릭 링크는 사용할 수 없습니다.")
-    if path.exists():
+    try:
+        if path.is_symlink():
+            raise ValueError("symlink")
+        if not path.exists():
+            return keys
         if not path.is_file() or path.stat().st_size > MAX_KNOWN_HOSTS_BYTES:
-            raise SSHError("KNOWN_HOSTS_INVALID", "SSH 키 파일의 형식 또는 크기를 확인하십시오.")
-        try:
-            keys.load(str(path))
-        except (OSError, ValueError, paramiko.SSHException) as exc:
-            raise SSHError("KNOWN_HOSTS_INVALID", "저장된 SSH 키 파일을 읽을 수 없습니다.") from exc
+            raise ValueError("invalid file")
+        contents = path.read_bytes()
+        if len(contents) > MAX_KNOWN_HOSTS_BYTES:
+            raise ValueError("oversized file")
+        for number, line in enumerate(contents.decode("utf-8").splitlines(), 1):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            # Paramiko silently ignores some malformed lines. Fail closed so a
+            # broken record cannot turn a previously trusted endpoint into TOFU.
+            fields = line.split()
+            if len(fields) < 3:
+                raise ValueError("invalid record")
+            entry = paramiko.hostkeys.HostKeyEntry.from_line(" ".join(fields[:3]), number)
+            if entry is None or entry.key is None or not all(entry.hostnames):
+                raise ValueError("invalid key")
+            for host in entry.hostnames:
+                if host.startswith("|"):
+                    hashed = host.split("|")
+                    if (len(hashed) != 4 or hashed[1] != "1"
+                            or any(len(base64.b64decode(value, validate=True)) != 20 for value in hashed[2:])):
+                        raise ValueError("invalid hashed hostname")
+                known = keys.lookup(host)
+                if known and entry.key.get_name() in known and known[entry.key.get_name()] != entry.key:
+                    raise ValueError("conflicting records")
+                keys.add(host, entry.key.get_name(), entry.key)
+    except (OSError, ValueError, UnicodeError, TypeError, IndexError, struct.error, binascii.Error,
+            paramiko.SSHException, paramiko.hostkeys.InvalidHostKey) as exc:
+        raise SSHError("KNOWN_HOSTS_INVALID", "저장된 SSH 키 파일의 형식 또는 접근 권한을 확인하십시오.") from exc
     return keys
+
+
+def _trust_check(cancel: threading.Event | None, deadline: float) -> None:
+    if cancel is not None and cancel.is_set():
+        raise SSHError("CANCELLED", "SSH 키 확인이 취소되었습니다.")
+    if time.monotonic() >= deadline:
+        raise SSHError("HOST_KEY_TIMEOUT", "SSH 서버 키 저장 또는 잠금 대기 시간이 초과되었습니다.")
+
+
+@contextmanager
+def _trust_lock(path: Path, cancel: threading.Event | None, deadline: float):
+    """Lock a persistent sidecar, never the atomically replaced known_hosts inode."""
+    _trust_check(cancel, deadline)
+    while not _KEYS_LOCK.acquire(blocking=False):
+        _trust_check(cancel, deadline)
+        time.sleep(0.025)
+    descriptor = None
+    locked = False
+    try:
+        _trust_check(cancel, deadline)
+        lock_path = path.with_name(path.name + ".lock")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if lock_path.is_symlink():
+                raise OSError("symlink")
+            descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise OSError("not a regular lock file")
+            if os.name == "nt" and os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"\0")
+            while True:
+                _trust_check(cancel, deadline)
+                try:
+                    if os.name == "nt":
+                        os.lseek(descriptor, 0, os.SEEK_SET)
+                        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+                    else:
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    locked = True
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK, errno.EINTR):
+                        raise
+                    time.sleep(0.025)
+        except OSError as exc:
+            raise SSHError("KNOWN_HOSTS_LOCK", "SSH 키 저장 잠금을 사용할 수 없습니다. 저장 경로와 권한을 확인하십시오.") from exc
+        _trust_check(cancel, deadline)
+        yield
+    finally:
+        try:
+            if descriptor is not None:
+                try:
+                    if locked:
+                        if os.name == "nt":
+                            os.lseek(descriptor, 0, os.SEEK_SET)
+                            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+                        else:
+                            fcntl.flock(descriptor, fcntl.LOCK_UN)
+                except OSError as exc:
+                    raise SSHError("KNOWN_HOSTS_LOCK", "SSH 키 저장 잠금을 해제하지 못했습니다.") from exc
+                finally:
+                    try:
+                        os.close(descriptor)
+                    except OSError as exc:
+                        raise SSHError("KNOWN_HOSTS_LOCK", "SSH 키 저장 잠금을 닫지 못했습니다.") from exc
+        finally:
+            _KEYS_LOCK.release()
 
 
 def _same_key(keys: paramiko.HostKeys, host: str, key: paramiko.PKey) -> bool:
@@ -69,80 +171,66 @@ def _same_key(keys: paramiko.HostKeys, host: str, key: paramiko.PKey) -> bool:
     return True
 
 
-def _save_key(path: Path, host: str, key: paramiko.PKey) -> None:
-    with _KEYS_LOCK:
+def _save_key(path: Path, host: str, key: paramiko.PKey,
+              cancel: threading.Event | None = None, deadline: float | None = None) -> None:
+    expires = time.monotonic() + INITIAL_CONNECTION_TIMEOUT if deadline is None else deadline
+    with _trust_lock(path, cancel, expires):
         keys = _known_keys(path)
+        _trust_check(cancel, expires)
         if _same_key(keys, host, key):
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        keys.add(host, key.get_name(), key)
         temporary: str | None = None
         try:
+            # Append to the latest bytes under the lock, preserving comments,
+            # hashed records and every unrelated endpoint exactly as written.
+            original = path.read_bytes() if path.exists() else b""
+            suffix = ("" if not original or original.endswith(b"\n") else "\n")
+            addition = (suffix + host + " " + key.get_name() + " " + key.get_base64() + "\n").encode("utf-8")
+            if len(original) + len(addition) > MAX_KNOWN_HOSTS_BYTES:
+                raise OSError("known hosts size limit")
             with tempfile.NamedTemporaryFile(prefix=".hostkeys-", dir=path.parent, delete=False) as file:
                 temporary = file.name
-            keys.save(temporary)
+                file.write(original + addition)
+                file.flush()
+                os.fsync(file.fileno())
             os.chmod(temporary, 0o600)
+            _trust_check(cancel, expires)
             os.replace(temporary, path)
         except OSError as exc:
-            raise SSHError("KNOWN_HOSTS_WRITE", "승인한 SSH 키를 로컬에 저장하지 못했습니다.") from exc
+            raise SSHError("KNOWN_HOSTS_WRITE", "SSH 서버 키를 로컬에 저장하지 못했습니다.") from exc
         finally:
-            if temporary and os.path.exists(temporary):
-                os.unlink(temporary)
+            if temporary:
+                try:
+                    os.unlink(temporary)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    # Cleanup must not replace a trust error or allow auth.
+                    pass
+        _trust_check(cancel, expires)
 
 
-class _ApprovalPolicy(paramiko.MissingHostKeyPolicy):
+class _TOFUPolicy(paramiko.MissingHostKeyPolicy):
     def __init__(self, session: SSHSession, cancel: threading.Event | None, deadline: float):
         self.session = session
         self.cancel = cancel
         self.deadline = deadline
 
     def missing_host_key(self, client, hostname, key):
-        session = self.session
-        with _KEYS_LOCK:
-            if _same_key(_known_keys(session.known_hosts), hostname, key):
-                client.get_host_keys().add(hostname, key.get_name(), key)
-                return
-        def check_approval_deadline():
-            if self.cancel is not None and self.cancel.is_set():
-                raise SSHError("CANCELLED", "SSH 키 확인이 취소되었습니다.")
-            if time.monotonic() >= self.deadline:
-                raise SSHError("HOST_KEY_APPROVAL_TIMEOUT", "SSH 서버 키 확인 시간이 만료되었습니다. 다시 조회하여 지문을 확인하십시오.")
-
-        check_approval_deadline()
-        if session.approve_host_key is None:
-            approved = False
-        else:
-            callback = session.approve_host_key
-            arguments = (session.device, key.get_name(), fingerprint_sha256(key))
-            try:
-                inspect.signature(callback).bind(*arguments, self.deadline, self.cancel)
-            except (TypeError, ValueError):
-                try:
-                    inspect.signature(callback).bind(*arguments, self.deadline)
-                except (TypeError, ValueError):
-                    approved = callback(*arguments)
-                else:
-                    approved = callback(*arguments, self.deadline)
-            else:
-                approved = callback(*arguments, self.deadline, self.cancel)
-        # A trust decision must never become a retryable network timeout.
-        if approved is not True:
-            raise SSHError("HOST_KEY_REJECTED", "SSH 서버 키가 승인되지 않아 접속하지 않았습니다.")
-        check_approval_deadline()
-        _save_key(session.known_hosts, hostname, key)
+        _save_key(self.session.known_hosts, hostname, key, self.cancel, self.deadline)
+        _trust_check(self.cancel, self.deadline)
         client.get_host_keys().add(hostname, key.get_name(), key)
 
 
 class SSHSession:
     """A reusable serialized session; caller owns endpoint pooling and lifetime.
 
-    The approval callback must itself return promptly on GUI cancellation. A
-    connection has a finite wall-clock budget, and late approval is discarded.
-    ``deadline`` is an absolute ``time.monotonic()`` value.
+    The optional approval callback is retained for source compatibility and is
+    never invoked. ``deadline`` is an absolute ``time.monotonic()`` value.
     """
 
     def __init__(self, device: Device, credentials: Credentials, known_hosts: Path,
-                 approve_host_key: Callable[[Device, str, str], bool] | None):
+                 approve_host_key: Callable[[Device, str, str], bool] | None = None):
         self.device = device
         self.credentials = credentials
         self.known_hosts = Path(known_hosts)
@@ -176,17 +264,32 @@ class SSHSession:
         client = paramiko.SSHClient()
         with self._state_lock:
             self._client = client
-        with _KEYS_LOCK:
-            _known_keys(self.known_hosts)  # Validate before Paramiko's loader.
-            if self.known_hosts.exists():
-                client.load_host_keys(str(self.known_hosts))
-        client.set_missing_host_key_policy(_ApprovalPolicy(self, cancel, deadline))
+        keys = _known_keys(self.known_hosts)  # Validate before opening a network connection.
+        endpoint = self.device.host if self.device.port == 22 else f"[{self.device.host}]:{self.device.port}"
+        known = keys.lookup(endpoint)
+
+        def transport_factory(*args, **kwargs):
+            transport = paramiko.Transport(*args, **kwargs)
+            if known:
+                # Preserve the existing pin's negotiation preference without
+                # letting Paramiko's cached keys bypass the locked disk check.
+                options = transport.get_security_options()
+                pinned = list(known)
+                if "ssh-rsa" in pinned:
+                    pinned = ["rsa-sha2-512", "rsa-sha2-256", *pinned]
+                preferred = [name for name in pinned if name in options.key_types]
+                options.key_types = preferred + [name for name in options.key_types if name not in preferred]
+            return transport
+
+        # Keep Paramiko's cache empty: each handshake must compare the latest
+        # disk state under the cross-process lock, including known endpoints.
+        client.set_missing_host_key_policy(_TOFUPolicy(self, cancel, deadline))
         remaining = min(CONNECT_TIMEOUT, max(0.01, deadline - time.monotonic()))
         client.connect(
             hostname=self.device.host, port=self.device.port,
             username=self.credentials.username, password=self.credentials.password,
             timeout=remaining, banner_timeout=remaining, auth_timeout=remaining,
-            look_for_keys=False, allow_agent=False,
+            look_for_keys=False, allow_agent=False, transport_factory=transport_factory,
         )
         self._check(cancel, deadline)
         self._channel = client.invoke_shell(term="vt100", width=4096, height=1000)

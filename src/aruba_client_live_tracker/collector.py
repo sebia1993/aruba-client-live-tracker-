@@ -1,9 +1,12 @@
 """Read-only, fail-closed MM→registered MD collection orchestration."""
 from __future__ import annotations
 
+import re
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 
 from .commands import (
@@ -16,7 +19,7 @@ from .commands import (
     stats_command,
     user_command,
 )
-from .models import Credentials, Device, Outcome, PollResult, Target, utc_now
+from .models import Credentials, Device, Diagnostic, Outcome, PollResult, Target, utc_now
 from .parsers import (
     ParseError,
     UnsupportedCommand,
@@ -33,6 +36,69 @@ from .ssh import SSHError, SSHSession
 POLL_TIMEOUT = 75.0
 MAX_POLL_RAW_BYTES = 2 * 1024 * 1024
 HISTORY_INTERVAL = 60.0
+MAX_POLL_DIAGNOSTICS = 32
+
+
+@dataclass
+class _PollContext:
+    """Keep partial evidence even when a later validation or command fails."""
+
+    credentials: Credentials
+    result: PollResult = dataclass_field(default_factory=lambda: PollResult(Outcome.ERROR))
+    device: Device | None = None
+    command: str = ""
+    stage: str = "identity"
+
+    def clean(self, value: str, limit: int) -> str:
+        value = "".join(char for char in value if char.isprintable())
+        for secret in (self.credentials.password, self.credentials.username):
+            if secret:
+                value = value.replace(secret, "[숨김]")
+        return value[:limit]
+
+    def diagnose(self, code: str, message: str, *, stage: str | None = None) -> Diagnostic:
+        device = self.device
+        diagnostic = Diagnostic(
+            stage or self.stage, self.clean(code, 64), self.clean(message, 512),
+            device_name=self.clean(device.name, 128) if device else "",
+            endpoint=self.clean(f"{device.host}:{device.port}", 256) if device else "",
+            command=self.clean(self.command, 512),
+        )
+        if len(self.result.diagnostics) < MAX_POLL_DIAGNOSTICS:
+            self.result.diagnostics.append(diagnostic)
+        return diagnostic
+
+    def failure(self, exc: Exception) -> Diagnostic:
+        # Exception text may contain credentials, server banners, or arbitrary raw CLI.
+        # Only stable application messages cross into persistent diagnostics/reports.
+        if isinstance(exc, SSHError):
+            code = exc.code if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", exc.code) else "SSH_ERROR"
+            upper = code.upper()
+            if upper.startswith(("HOST_KEY", "KNOWN_HOSTS")):
+                stage, message = "host_key", "SSH 서버 키 검사 또는 저장에 실패하여 연결을 차단했습니다."
+            elif upper.startswith("AUTH"):
+                stage, message = "auth", "SSH 인증에 실패했습니다. 공통 계정 정보를 확인하십시오."
+            elif upper in ("NETWORK", "CONNECTION_CLOSED", "COOLDOWN", "TIMEOUT"):
+                stage, message = "connect", "SSH 연결 또는 응답을 확인할 수 없습니다."
+            elif upper == "CANCELLED":
+                stage, message = self.stage, "조회가 중지되었습니다."
+            elif upper == "OUTPUT_LIMIT":
+                stage, message = self.stage, "조회 출력량 제한을 초과했습니다."
+            else:
+                stage, message = self.stage, "SSH 조회를 완료하지 못했습니다."
+        elif isinstance(exc, UnsupportedCommand):
+            stage, code, message = self.stage, "COMMAND_REJECTED", "명령어가 거부되었습니다. 지원 여부와 조회 권한을 확인하십시오."
+        elif isinstance(exc, ParseError):
+            stage, code, message = "parse", "PARSE_FAILED", "CLI 출력 형식을 해석할 수 없습니다. 로컬 원문에서 필수 항목과 완료 건수를 확인하십시오."
+        else:
+            stage, code, message = self.stage, "VALIDATION_FAILED", "조회 입력 또는 장비 설정을 확인하십시오."
+        return self.diagnose(code, message, stage=stage)
+
+    def finish(self, outcome: Outcome, **values) -> PollResult:
+        self.result.outcome = outcome
+        for key, value in values.items():
+            setattr(self.result, key, value)
+        return self.result
 
 
 def map_md(current_switch: str, devices: list[Device]) -> Device:
@@ -105,16 +171,23 @@ class LiveCollector:
     def poll(self, target: Target, selected_mac: str | None = None,
              cancel: threading.Event | None = None) -> PollResult:
         if not self._lock.acquire(blocking=False):
-            return PollResult(Outcome.ERROR, error="이전 조회가 진행 중입니다.")
+            return PollResult(Outcome.ERROR, error="이전 조회가 진행 중입니다.",
+                              diagnostics=[Diagnostic("mm_lookup", "BUSY", "이전 조회가 진행 중입니다.")])
+        context = _PollContext(self.credentials)
         try:
-            return self._poll(target, selected_mac, cancel)
+            return self._poll(target, selected_mac, cancel, context)
         except (SSHError, ParseError, ValueError) as exc:
-            return PollResult(Outcome.ERROR, error=str(exc))
+            diagnostic = context.failure(exc)
+            for name in ("mm_status", "md_status"):
+                status = getattr(context.result, name)
+                if status.endswith("조회 중"):
+                    setattr(context.result, name, status.removesuffix("조회 중") + "조회 실패")
+            return context.finish(Outcome.ERROR, error=diagnostic.message)
         finally:
             self._lock.release()
 
     def _poll(self, target: Target, selected_mac: str | None,
-              cancel: threading.Event | None) -> PollResult:
+              cancel: threading.Event | None, context: _PollContext) -> PollResult:
         # Revalidate even an externally constructed Target: the UI is not a trust boundary.
         normalized = parse_target(target.value)
         if normalized.kind != target.kind:
@@ -137,11 +210,12 @@ class LiveCollector:
         # Once resolved, pin identity to MAC so DHCP address changes do not switch users.
         lookup_target = Target("mac", self._tracked_mac) if self._tracked_mac else normalized
         deadline = time.monotonic() + POLL_TIMEOUT
-        raw: dict[str, str] = {}
+        raw = context.result.raw
         raw_bytes = 0
 
         def run(device: Device, command: str) -> str:
             nonlocal raw_bytes
+            context.device, context.command = device, command
             if cancel is not None and cancel.is_set():
                 raise SSHError("CANCELLED", "조회가 중지되었습니다.")
             if self._command_runner is None:
@@ -163,13 +237,19 @@ class LiveCollector:
         controllers = sorted([d for d in self.devices if d.enabled and d.kind in ("MM_PRIMARY", "MM_STANDBY")],
                              key=lambda d: d.kind != "MM_PRIMARY")
         if not controllers:
-            raise ValueError("사용 가능한 MM이 없습니다. 장비 연결 설정을 등록하십시오.")
+            message = "사용 가능한 MM이 없습니다. 장비 연결 설정을 등록하십시오."
+            context.diagnose("MM_NOT_CONFIGURED", message, stage="identity")
+            return context.finish(Outcome.ERROR, error=message)
         if sum(d.kind == "MM_PRIMARY" for d in controllers) > 1 or sum(d.kind == "MM_STANDBY" for d in controllers) > 1:
-            raise ValueError("MM Primary와 Standby는 각각 하나씩만 사용하도록 설정하십시오.")
+            message = "MM Primary와 Standby는 각각 하나씩만 사용하도록 설정하십시오."
+            context.diagnose("MM_ROLE_DUPLICATE", message, stage="identity")
+            return context.finish(Outcome.ERROR, error=message)
         mm_status = "확인 불가"
         candidates = []
         last_error = ""
         for mm in controllers:
+            context.stage = "mm_lookup"
+            context.result.mm_status = f"{mm.name} 조회 중"
             try:
                 candidates = parse_global_users(run(mm, global_user_command(lookup_target)), lookup_target)
                 mm_status = f"{mm.name} 연결 정상"
@@ -177,35 +257,47 @@ class LiveCollector:
                     mm_status += " (대체 MM 조회)"
                 break
             except SSHError as exc:
+                diagnostic = context.failure(exc)
                 self._drop(mm)
-                if not exc.retryable:
-                    return PollResult(Outcome.ERROR, error=str(exc), mm_status="연결 차단", raw=raw)
-                last_error = str(exc)
+                if not exc.retryable or diagnostic.stage in ("host_key", "auth"):
+                    return context.finish(Outcome.ERROR, error=diagnostic.message, mm_status="연결 차단")
+                last_error = diagnostic.message
             except ParseError as exc:
-                return PollResult(Outcome.ERROR, error=str(exc), mm_status=f"{mm.name} 조회 실패", raw=raw)
+                diagnostic = context.failure(exc)
+                return context.finish(Outcome.ERROR, error=diagnostic.message, mm_status=f"{mm.name} 조회 실패")
         else:
-            return PollResult(Outcome.ERROR, error=last_error or "MM 조회 실패", mm_status="통신 실패", raw=raw)
+            return context.finish(Outcome.ERROR, error=last_error or "MM 조회 실패", mm_status="통신 실패", raw=raw)
+        context.result.mm_status = mm_status
         if not candidates:
-            return PollResult(Outcome.ABSENT, mm_status=mm_status, md_status="조회 대상 없음", raw=raw)
+            return context.finish(Outcome.ABSENT, mm_status=mm_status, md_status="조회 대상 없음", raw=raw)
         identities = {(c.mac, c.current_switch) for c in candidates}
         if len(candidates) != 1 or len(identities) != 1:
-            return PollResult(Outcome.AMBIGUOUS, candidates=candidates,
+            context.diagnose("CLIENT_AMBIGUOUS", "여러 단말 또는 담당 MD가 검색되어 선택이 필요합니다.")
+            return context.finish(Outcome.AMBIGUOUS, candidates=candidates,
                               error="여러 클라이언트 또는 담당 MD가 검색되었습니다. 단말을 선택하십시오.", mm_status=mm_status, raw=raw)
         candidate = candidates[0]
         self._tracked_mac = candidate.mac
+        context.stage, context.command = "md_mapping", ""
         try:
             md = map_md(candidate.current_switch, self.devices)
         except ValueError as exc:
-            return PollResult(Outcome.ERROR, error=str(exc), mm_status=mm_status, md_status="매핑 필요", raw=raw)
+            # map_md produces only fixed local messages; never include the switch value.
+            message = str(exc)
+            context.diagnose("MD_MAPPING_FAILED", message)
+            return context.finish(Outcome.ERROR, error=message, mm_status=mm_status, md_status="매핑 필요", raw=raw)
+        context.stage = "md_command"
+        context.result.md_status = f"{md.name} 조회 중"
         try:
             obs = parse_user(run(md, user_command(candidate.mac)), candidate.mac)
         except (SSHError, ParseError) as exc:
+            diagnostic = context.failure(exc)
             if isinstance(exc, SSHError):
                 self._drop(md)
-            return PollResult(Outcome.ERROR, error=str(exc), mm_status=mm_status, md_status=f"{md.name} 조회 실패", raw=raw)
+            return context.finish(Outcome.ERROR, error=diagnostic.message, mm_status=mm_status, md_status=f"{md.name} 조회 실패", raw=raw)
         if obs is None:
+            context.diagnose("MM_MD_MISMATCH", "MM과 MD의 클라이언트 정보가 일치하지 않습니다.")
             # MM still reports this MD: the disagreement is not proof of disconnection.
-            return PollResult(Outcome.ERROR, error="MM과 MD의 클라이언트 정보가 일치하지 않습니다. 다음 조회에서 다시 확인합니다.",
+            return context.finish(Outcome.ERROR, error="MM과 MD의 클라이언트 정보가 일치하지 않습니다. 다음 조회에서 다시 확인합니다.",
                               mm_status=mm_status, md_status="관측 불일치", raw=raw)
         obs.collected_at = utc_now()
         obs.md = md.name
@@ -226,6 +318,7 @@ class LiveCollector:
 
         def optional(group: str, command: str, parser, fields: tuple[str, ...]) -> dict:
             nonlocal md_partial, transport_failed
+            context.stage, context.device, context.command = "wireless", md, command
             if transport_failed:
                 obs.field_status[group] = "조회 실패"
                 for field in fields:
@@ -243,6 +336,7 @@ class LiveCollector:
                         obs.evidence[field] = f"{command} | 조회={utc_now()} | 장비 표본 시각={sample}"
                 return values
             except (SSHError, ParseError, ValueError) as exc:
+                context.failure(exc)
                 md_partial = True
                 status = "지원하지 않음" if isinstance(exc, UnsupportedCommand) else "조회 실패"
                 obs.field_status[group] = status
@@ -274,6 +368,9 @@ class LiveCollector:
                     obs.retries = None  # Do not combine counters from different command families.
                     obs.field_status["retries"] = "확인 불가"
             except ValueError:
+                context.stage, context.device, context.command = "wireless", md, ""
+                context.diagnose("AP_NAME_UNSUPPORTED", "AP 이름 형식이 지원되지 않아 무선 표 조회를 생략했습니다.")
+                md_partial = True
                 obs.field_status["client_table"] = "AP 이름 형식 미지원"
         else:
             obs.field_status["client_table"] = "AP 이름 확인 불가"
@@ -308,6 +405,7 @@ class LiveCollector:
         for group, status in self._history_status.items():
             obs.field_status.setdefault(group, status + " · 이전 이력 조회값")
         if cancel is not None and cancel.is_set():
-            return PollResult(Outcome.ERROR, error="조회가 중지되었습니다.", mm_status=mm_status, md_status="중지", raw={})
-        return PollResult(Outcome.OK, observation=obs, mm_status=mm_status,
+            context.diagnose("CANCELLED", "조회가 중지되었습니다.")
+            return context.finish(Outcome.ERROR, error="조회가 중지되었습니다.", mm_status=mm_status, md_status="중지", raw=raw)
+        return context.finish(Outcome.OK, observation=obs, mm_status=mm_status,
                           md_status=f"{md.name} " + ("일부 항목 조회 실패" if md_partial else "연결 정상"), raw=raw)

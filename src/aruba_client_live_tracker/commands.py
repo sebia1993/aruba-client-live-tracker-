@@ -14,6 +14,8 @@ _MAC_PATTERNS = (
     re.compile(r"(?:[0-9a-fA-F]{2}-){5}[0-9a-fA-F]{2}\Z"),
     re.compile(r"(?:[0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4}\Z"),
 )
+DISCOVERY_COMMANDS = ("show switches", "show version", "show switchinfo")
+
 _SAFE_AP = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 
 
@@ -73,6 +75,8 @@ def validate_command(command: str) -> str:
     """Reject everything except exact generated command forms, including line endings."""
     if not isinstance(command, str) or any(ord(c) < 32 for c in command):
         raise ValueError("조회 전용 명령어만 허용합니다.")
+    if command in DISCOVERY_COMMANDS:
+        return command
     ip = re.fullmatch(r'show global-user-table list ip "([0-9.]+)"', command)
     if ip and command == global_user_command(Target("ip", ip.group(1))):
         return command

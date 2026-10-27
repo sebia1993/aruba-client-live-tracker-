@@ -1,4 +1,5 @@
 # v0.2.0 다중 모니터링 실행 계획
+> v0.2.0 과거 구현 기록입니다. 현재 v0.3.0 계획은 [V030_IMPLEMENTATION_KO.md](V030_IMPLEMENTATION_KO.md), 현재 검증은 [BUILD_VALIDATION_KO.md](BUILD_VALIDATION_KO.md)를 따릅니다. 아래 승인 UI와 당시 배포 상태는 과거 동작입니다.
 
 승인 범위: 기존 단일 추적 유지, 최대10대, 목록+선택 상세, 개별/전체 제어, 대상별/통합 CSV·HTML. 외부 계정/장비 정보 요청 없음. 공개 원격은 sebia1993/aruba-client-live-tracker- (끝 하이픈 포함).
 
@@ -9,7 +10,7 @@
 - [x] 단일 회귀/10대 반복/동시성/GUI/보안 검증 및 독립 리뷰
 - [x] v0.2.0 문서/화면/Windows Actions 빌드/실제 EXE smoke/Release ZIP·SHA·소스
 
-공개 배포: [v0.2.0](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.2.0). 최종 검증과 미검증 경계는 [빌드 기록](BUILD_VALIDATION_KO.md)을 참조한다.
+공개 배포: [v0.2.0](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.2.0). 최종 검증과 미검증 경계는 [v0.2.0 빌드 기록](validation/v0.2.0/BUILD_VALIDATION_KO.md)을 참조한다.
 
 ## 공통 계약
 새 monitoring.py는 Qt 비의존 coordinator다. UI 주 스레드가 tick()으로 완료 큐를 처리하고 반환된 대상 ID 목록을 다시 그린다. worker는 collector.poll만 호출하며 UI/SQLite를 변경하지 않는다. 최대2개 ThreadPoolExecutor, 실제 제출 작업도2개까지. context 상태 stopped/running/paused/selection_required/duplicate. 각 context에는 id,target,tracker,collector,session_id,generation,cancel,in_flight,view,last_result,next_due,samples(240),events(500)가 있다.

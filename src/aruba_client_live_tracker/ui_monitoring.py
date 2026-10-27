@@ -1,12 +1,9 @@
-"""Main-thread multi-target controls and cancellable SSH approval queue."""
+"""Main-thread multi-target controls and application-lifetime credential cache."""
 from __future__ import annotations
 
-import threading
 import time
-from collections import deque
-from dataclasses import dataclass, field
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -23,28 +20,12 @@ from PySide6.QtWidgets import (
 from .ui import TOOLTIPS, _Dashboard, add_row, display_time, table
 
 
-@dataclass
-class HostApproval:
-    owner_id: str
-    generation: int
-    device: object
-    algorithm: str
-    fingerprint: str
-    deadline: float
-    cancel: threading.Event
-    answer: bool = False
-    done: threading.Event = field(default_factory=threading.Event)
-
-
 class MainWindow(_Dashboard):
     def __init__(self, data_path=None, demo=True, multi=False):
         self.coordinator = None
         self.selected_id = None
         self.pool = None
         self._credentials_value = None
-        self._approval_queue = deque()
-        self._approval_box = None
-        self._approval_request = None
         self._closed = False
         self._emitted_results = {}
         self._rendered_signature = None
@@ -104,7 +85,7 @@ class MainWindow(_Dashboard):
             from .demo import DemoCollector
             return DemoCollector(scenario=self.scenario.currentData())
         from .collector import LiveCollector
-        return LiveCollector(self.devices, self._credentials_value, self.data_path / 'known_hosts',
+        return LiveCollector([d for d in self.devices if d.enabled and d.kind != "AUTO"], self._credentials_value, self.data_path / 'known_hosts',
                              command_runner=self.pool.for_owner(context.id))
 
     def _ensure_run(self):
@@ -112,15 +93,15 @@ class MainWindow(_Dashboard):
             return True
         if self.pool is not None:
             return True
-        if not any(device.enabled for device in self.devices):
-            QMessageBox.warning(self, '장비 설정 필요', '장비 연결 설정에서 MM과 담당 MD를 먼저 등록하세요.')
+        if not any(device.enabled and device.kind != "AUTO" for device in self.devices):
+            QMessageBox.warning(self, '장비 설정 필요', '장비 연결 설정에서 MM과 담당 MD를 등록하고 역할을 검사하세요. 판별 불가 (AUTO)는 추적에서 제외됩니다.')
             return False
-        credentials = self._credentials()
+        credentials = self._shared_credentials()
         if credentials is None:
             return False
         from .session_pool import SharedSessionPool
         self._credentials_value = credentials
-        self.pool = SharedSessionPool(credentials, self.data_path / 'known_hosts', self._request_host_key)
+        self.pool = SharedSessionPool(credentials, self.data_path / 'known_hosts')
         return True
 
     def _monitor_changed(self):
@@ -305,8 +286,6 @@ class MainWindow(_Dashboard):
         if not self.coordinator.active and not self.coordinator.busy and self.pool is not None:
             self.pool.close()
             self.pool = None
-            self._credentials_value = None
-        self._show_next_approval()
         if self.pending_close and not self.coordinator.busy:
             self.close()
 
@@ -319,7 +298,7 @@ class MainWindow(_Dashboard):
             view, result = context.view, context.last_result
             observation = view.observation if view else None
             due = '조회 중' if context.in_flight else ('대기' if context.next_due is None else f'{max(0, context.next_due-time.monotonic()):.0f}초 후')
-            note = context.note or (result.error if result else '')
+            note = context.note or (self._result_notice(result) if result else '')
             if note:
                 due += ' · ' + note
             snr = observation.snr if observation else None
@@ -376,7 +355,7 @@ class MainWindow(_Dashboard):
             self.connection_state.setText(context.target.value + ' · 추적 중지 · 마지막 관측 보존')
         elif context.status == 'paused':
             self.connection_state.setText(self.connection_state.text() + ' · 일시 정지')
-        self.status_note.setText(context.note or (result.error if result else '') or '관측 사실을 표시합니다. 장애 원인은 인증·AP·무선 환경을 함께 확인하세요.')
+        self.status_note.setText(context.note or (self._result_notice(result) if result else '') or '관측 사실을 표시합니다. 장애 원인은 인증·AP·무선 환경을 함께 확인하세요.')
         if result:
             self.mm_label.setText(f'MM · {result.mm_status}')
             self.md_label.setText(f'MD · {result.md_status}')
@@ -412,6 +391,7 @@ class MainWindow(_Dashboard):
         self.mode.setEnabled(not locked)
         self.monitor_kind.setEnabled(not locked)
         self.settings_button.setEnabled(not locked)
+        self.account_button.setEnabled(not locked)
         self.scenario.setEnabled(bool(self.mode.currentData()) and not locked)
         self.stop_button.setEnabled(bool(context and (context.status != 'stopped' or context.in_flight)))
         self.pause_button.setEnabled(bool(context and context.status in {'running','paused'}))
@@ -424,60 +404,20 @@ class MainWindow(_Dashboard):
         self.worker = context if context and context.in_flight else None
         self.session_id = context.session_id if context else self.session_id
 
-    def _request_host_key(self, owner_id, device, algorithm, fingerprint, deadline, cancel):
-        context = self.coordinator.contexts.get(owner_id)
-        if context is None or cancel.is_set():
-            return False
-        request = HostApproval(owner_id, context.generation, device, algorithm, fingerprint,
-                               min(deadline, time.monotonic()+45), cancel)
-        self.host_key_requested.emit(request)
-        while not request.done.wait(.05):
-            if cancel.is_set() or time.monotonic() >= request.deadline:
-                return False
-        return request.answer and not cancel.is_set() and time.monotonic() < request.deadline
+    def _shared_credentials(self):
+        if self._credentials_value is None:
+            self._credentials_value = self._credentials()
+        return self._credentials_value
 
-    def _valid_approval(self, request):
-        context = self.coordinator.contexts.get(request.owner_id)
-        return bool(context and context.generation == request.generation and context.in_flight and not context.cancel.is_set()
-                    and not request.cancel.is_set() and time.monotonic() < request.deadline)
-
-    def _approve_key(self, request):
-        self._approval_queue.append(request)
-        self._show_next_approval()
-
-    def _show_next_approval(self):
-        if self._approval_box is not None:
+    def change_account(self):
+        if self.coordinator is not None and (self.coordinator.active or self.coordinator.busy):
             return
-        while self._approval_queue:
-            request = self._approval_queue.popleft()
-            if not self._valid_approval(request):
-                request.done.set()
-                continue
-            box = QMessageBox(self)
-            box.setWindowTitle('최초 SSH 서버 키 확인')
-            box.setTextFormat(Qt.TextFormat.PlainText)
-            box.setText(f'{request.device.name} ({request.device.host}:{request.device.port})\n알고리즘: {request.algorithm}\nSHA-256 지문: {request.fingerprint}\n관리자가 제공한 지문과 별도 경로로 비교한 뒤 승인하세요.')
-            approve = box.addButton('지문 확인 후 승인', QMessageBox.ButtonRole.AcceptRole)
-            reject = box.addButton('접속 취소', QMessageBox.ButtonRole.RejectRole)
-            box.setDefaultButton(reject)
-            self._approval_box, self._approval_request = box, request
-            timer = QTimer(box)
-            def countdown():
-                if not self._valid_approval(request):
-                    box.reject()
-                else:
-                    box.setInformativeText(f'승인 대기: {max(0, request.deadline-time.monotonic()):.0f}초')
-            def finished(_):
-                request.answer = box.clickedButton() is approve and self._valid_approval(request)
-                request.done.set()
-                self._approval_box = self._approval_request = None
-                box.deleteLater()
-                QTimer.singleShot(0, self._show_next_approval)
-            timer.timeout.connect(countdown)
-            timer.start(100)
-            box.finished.connect(finished)
-            box.open()
-            return
+        if self.pool is not None:
+            self.pool.close()
+            self.pool = None
+        self._credentials_value = None
+        self.collector = None
+        self.status_note.setText('공통 SSH 계정을 지웠습니다. 다음 발견·추적 연결에서 새 계정을 입력하세요.')
 
     def open_settings(self):
         if self.coordinator.active or self.coordinator.busy:
@@ -490,11 +430,6 @@ class MainWindow(_Dashboard):
             return
         self.pending_close = True
         done = self.coordinator.close(wait=False)
-        for request in self._approval_queue:
-            request.done.set()
-        self._approval_queue.clear()
-        if self._approval_box:
-            self._approval_box.reject()
         if not done or self.coordinator.busy:
             self.status_note.setText('진행 중인 수집을 취소하고 연결을 정리하는 중입니다.')
             event.ignore()
@@ -505,5 +440,6 @@ class MainWindow(_Dashboard):
             self.pool.close()
             self.pool = None
         self._credentials_value = None
+        self.collector = None
         self.store.close()
         event.accept()

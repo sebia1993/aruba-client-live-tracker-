@@ -223,3 +223,186 @@ def test_shared_md_change_releases_only_changed_owner_and_refreshes_history(monk
         for collector in collectors:
             collector.close()
         pool.close()
+
+
+@pytest.mark.parametrize("code,stage", [
+    ("NETWORK", "connect"), ("AUTH_FAILED", "auth"), ("HOST_KEY_CHANGED", "host_key"),
+    ("HOST_KEY_TIMEOUT", "host_key"), ("KNOWN_HOSTS_LOCK", "host_key"),
+    ("KNOWN_HOSTS_WRITE", "host_key"), ("KNOWN_HOSTS_INVALID", "host_key"),
+])
+def test_mm_diagnostic_stages_sanitize_exception_and_block_trust_failover(collector, code, stage):
+    FakeSSH.failures[MM.name] = SSHError(code, "password=synthetic\nserver private banner", retryable=True)
+    result = collector.poll(parse_target(MAC))
+    diagnostic = result.diagnostics[0]
+    assert (diagnostic.stage, diagnostic.code) == (stage, code)
+    assert diagnostic.device_name == MM.name
+    assert diagnostic.endpoint == f"{MM.host}:{MM.port}"
+    assert diagnostic.command == global_user_command(parse_target(MAC))
+    assert "synthetic" not in repr(diagnostic)
+    assert "private banner" not in result.error
+    if stage in ("host_key", "auth"):
+        assert result.outcome == Outcome.ERROR
+        assert len(FakeSSH.instances) == 1
+    else:
+        assert result.outcome == Outcome.OK
+        assert STANDBY.name in result.mm_status
+
+
+@pytest.mark.parametrize("output,stage,code", [
+    ("Permission denied: invented policy", "md_command", "COMMAND_REJECTED"),
+    ("Changed synthetic output without required fields", "parse", "PARSE_FAILED"),
+    (table(["IP Address", "MAC Address", "Role"], [["bad-ip", MAC, "r"]]), "parse", "PARSE_FAILED"),
+])
+def test_md_command_vs_parser_diagnostics_keep_mm_evidence(collector, monkeypatch, output, stage, code):
+    original_run = FakeSSH.run
+
+    def run(session, command, **kwargs):
+        if "show user-table" in command:
+            return output
+        return original_run(session, command, **kwargs)
+
+    monkeypatch.setattr(FakeSSH, "run", run)
+    result = collector.poll(parse_target(MAC))
+    assert result.outcome == Outcome.ERROR
+    assert "연결 정상" in result.mm_status
+    assert result.md_status == f"{MD.name} 조회 실패"
+    diagnostic = result.diagnostics[-1]
+    assert (diagnostic.stage, diagnostic.code, diagnostic.device_name) == (stage, code, MD.name)
+    assert diagnostic.command == f"show user-table mac {MAC}"
+    assert any("global-user-table" in command for command in result.raw)
+    assert output in result.raw.values()
+
+
+def test_optional_failures_have_commands_and_retain_successful_observation(collector):
+    result = collector.poll(parse_target(MAC))
+    assert result.outcome == Outcome.OK
+    assert result.observation.snr == 30
+    optional = result.diagnostics
+    assert len(optional) == 4  # AP client table and three optional history commands.
+    assert all(d.stage == "wireless" and d.code == "COMMAND_REJECTED" for d in optional)
+    assert all(d.device_name == MD.name and d.command for d in optional)
+    assert all(any(d.command in key for key in result.raw) for d in optional)
+
+
+def test_optional_parser_failure_is_distinct_from_command_denial(collector, monkeypatch):
+    original_run = FakeSSH.run
+
+    def run(session, command, **kwargs):
+        if "client-stats" in command:
+            return "invented unrecognized stats"
+        return original_run(session, command, **kwargs)
+
+    monkeypatch.setattr(FakeSSH, "run", run)
+    result = collector.poll(parse_target(MAC))
+    assert result.outcome == Outcome.OK
+    diagnostic = next(d for d in result.diagnostics if "client-stats" in d.command)
+    assert diagnostic.stage == "parse"
+    assert result.observation.field_status["client_stats"] == "조회 실패"
+
+
+def test_late_parser_validation_preserves_accumulated_status_and_raw(collector, monkeypatch):
+    def fail(*args):
+        raise ValueError("synthetic password should never escape")
+
+    monkeypatch.setattr("aruba_client_live_tracker.collector.parse_user", fail)
+    result = collector.poll(parse_target(MAC))
+    assert result.outcome == Outcome.ERROR
+    assert "연결 정상" in result.mm_status
+    assert result.md_status == f"{MD.name} 조회 실패"
+    assert len(result.raw) == 2
+    assert result.diagnostics[-1].code == "VALIDATION_FAILED"
+    assert "password" not in result.error
+
+
+def test_cancellation_after_read_keeps_local_raw_and_stage(collector, monkeypatch):
+    event = threading.Event()
+    original_run = FakeSSH.run
+
+    def run(session, command, **kwargs):
+        output = original_run(session, command, **kwargs)
+        if "show user-table" in command:
+            event.set()
+        return output
+
+    monkeypatch.setattr(FakeSSH, "run", run)
+    result = collector.poll(parse_target(MAC), cancel=event)
+    assert result.outcome == Outcome.ERROR
+    assert result.md_status == "중지"
+    assert len(result.raw) == 2
+    assert any(d.code == "CANCELLED" for d in result.diagnostics)
+    assert "연결 정상" in result.mm_status
+
+
+def test_auto_devices_are_excluded_from_controller_and_mapping(collector):
+    auto = Device("UNRESOLVED", "192.0.2.20", "AUTO", mappings=("192.0.2.20",))
+    collector.devices = [auto, MD]
+    result = collector.poll(parse_target(MAC))
+    assert result.outcome == Outcome.ERROR
+    assert result.diagnostics[-1].code == "MM_NOT_CONFIGURED"
+    assert not FakeSSH.instances
+    collector.devices = [MM, auto]
+    result = collector.poll(parse_target(MAC))
+    assert result.diagnostics[-1].stage == "md_mapping"
+    assert result.diagnostics[-1].code == "MD_MAPPING_FAILED"
+    assert len(FakeSSH.instances) == 1
+    assert all(s.device.kind != "AUTO" for s in FakeSSH.instances)
+
+
+def test_diagnostic_metadata_is_bounded_and_redacted(collector):
+    from aruba_client_live_tracker.collector import MAX_POLL_DIAGNOSTICS, _PollContext
+
+    context = _PollContext(collector.credentials)
+    context.device = Device("synthetic\n" + "N" * 200, "192.0.2.10")
+    context.command = "synthetic\x1b" + "C" * 600
+    for _ in range(100):
+        context.diagnose("FAILED", "synthetic\n" + "M" * 700)
+    assert len(context.result.diagnostics) == MAX_POLL_DIAGNOSTICS
+    diagnostic = context.result.diagnostics[0]
+    assert len(diagnostic.message) <= 512
+    assert len(diagnostic.command) <= 512
+    assert len(diagnostic.device_name) <= 128
+    assert "synthetic" not in repr(diagnostic)
+    assert "\n" not in diagnostic.message
+    assert "\x1b" not in diagnostic.command
+
+
+@pytest.mark.parametrize("code,stage", [("AUTH_FAILED", "auth"), ("HOST_KEY_CHANGED", "host_key"),
+                                        ("NETWORK", "connect")])
+def test_md_ssh_failure_diagnostics_preserve_mm_success(collector, code, stage):
+    FakeSSH.failures[MD.name] = SSHError(code, "untrusted synthetic exception")
+    result = collector.poll(parse_target(MAC))
+    assert result.outcome == Outcome.ERROR
+    assert result.mm_status == f"{MM.name} 연결 정상"
+    assert result.diagnostics[-1].stage == stage
+    assert result.diagnostics[-1].device_name == MD.name
+    assert result.diagnostics[-1].command == f"show user-table mac {MAC}"
+    assert len(result.raw) == 1
+
+
+def test_mm_command_rejection_is_not_parser_failure_or_failover(collector):
+    FakeSSH.mm_output = "Access denied: synthetic policy"
+    result = collector.poll(parse_target(MAC))
+    assert result.outcome == Outcome.ERROR
+    diagnostic = result.diagnostics[-1]
+    assert (diagnostic.stage, diagnostic.code) == ("mm_lookup", "COMMAND_REJECTED")
+    assert FakeSSH.mm_output in result.raw.values()
+    assert len(FakeSSH.instances) == 1
+
+
+def test_output_budget_failure_keeps_prior_raw(collector, monkeypatch):
+    from aruba_client_live_tracker.collector import MAX_POLL_RAW_BYTES
+
+    original_run = FakeSSH.run
+
+    def run(session, command, **kwargs):
+        if "show user-table" in command:
+            return "X" * (MAX_POLL_RAW_BYTES + 1)
+        return original_run(session, command, **kwargs)
+
+    monkeypatch.setattr(FakeSSH, "run", run)
+    result = collector.poll(parse_target(MAC))
+    assert result.outcome == Outcome.ERROR
+    assert result.diagnostics[-1].code == "OUTPUT_LIMIT"
+    assert result.diagnostics[-1].stage == "md_command"
+    assert result.mm_status == f"{MM.name} 연결 정상"
+    assert list(result.raw.values()) == [global_output()]
