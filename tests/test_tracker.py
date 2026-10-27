@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+import pytest
+
 from aruba_client_live_tracker.models import Observation, Outcome, PollResult
 from aruba_client_live_tracker.tracker import Tracker
 
@@ -130,3 +132,71 @@ def test_partial_command_failure_and_recovery_events_are_not_repeated():
     assert 'field_collection_failed' not in kinds(again)
     restored = tracker.apply(ok(observed(field_status={'client_table': '정상'})))
     assert 'field_collection_recovered' in kinds(restored)
+
+
+@pytest.mark.parametrize('initial_supported', [True, False])
+def test_collector_cached_history_does_not_invent_health_transitions(monkeypatch, tmp_path, initial_supported):
+    from types import SimpleNamespace
+
+    from test_collector import MAC, MD, MM, FakeSSH, global_output
+
+    from aruba_client_live_tracker.collector import LiveCollector
+    from aruba_client_live_tracker.commands import history_commands, parse_target
+    from aruba_client_live_tracker.models import Credentials
+
+    history_groups = {'client_trail', 'client_match', 'auth_trace'}
+    history_output = ['Synthetic successful history' if initial_supported else '% Invalid input']
+    clock = [100.0]
+
+    class HistorySSH(FakeSSH):
+        instances = []
+        failures = {}
+        mm_output = global_output()
+
+        def run(self, command, **kwargs):
+            if command in history_commands(MAC):
+                return history_output[0]
+            return super().run(command, **kwargs)
+
+    monkeypatch.setattr('aruba_client_live_tracker.collector.SSHSession', HistorySSH)
+    monkeypatch.setattr('aruba_client_live_tracker.collector.time', SimpleNamespace(monotonic=lambda: clock[0]))
+    collector = LiveCollector([MM, MD], Credentials('synthetic', 'synthetic'), tmp_path / 'known_hosts')
+    tracker = Tracker()
+
+    def history_events(view):
+        return [(event.kind, event.facts['collection']) for event in view.events
+                if event.facts.get('collection') in history_groups]
+
+    try:
+        first = tracker.apply(collector.poll(parse_target(MAC)))
+        expected_failures = set() if initial_supported else {('field_collection_failed', g) for g in history_groups}
+        assert set(history_events(first)) == expected_failures
+
+        # A device-side recovery is not observed until the history refresh is due.
+        history_output[0] = 'Synthetic successful history'
+        clock[0] += 15
+        cached = tracker.apply(collector.poll(parse_target(MAC)))
+        assert all('이전 이력 조회값' in cached.observation.field_status[g] for g in history_groups)
+        assert not history_events(cached)
+        assert set(tracker.partial_failures) & history_groups == (set() if initial_supported else history_groups)
+
+        clock[0] += 60
+        fresh = tracker.apply(collector.poll(parse_target(MAC)))
+        expected_recoveries = set() if initial_supported else {('field_collection_recovered', g) for g in history_groups}
+        assert set(history_events(fresh)) == expected_recoveries
+        assert not (set(tracker.partial_failures) & history_groups)
+    finally:
+        collector.close()
+
+
+def test_cached_failed_history_keeps_health_until_a_fresh_recovery():
+    tracker = Tracker()
+    first = tracker.apply(ok(observed(field_status={'client_trail': '조회 실패'})))
+    assert 'field_collection_failed' in kinds(first)
+    cached = tracker.apply(ok(observed(field_status={'client_trail': '조회 실패 · 이전 이력 조회값'})))
+    assert not cached.events
+    assert tracker.partial_failures['client_trail'] == '조회 실패'
+    unchanged = tracker.apply(ok(observed(field_status={'client_trail': '조회 실패'})))
+    assert not unchanged.events
+    recovered = tracker.apply(ok(observed(field_status={'client_trail': '정상'})))
+    assert kinds(recovered) == {'field_collection_recovered'}

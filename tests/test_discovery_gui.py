@@ -180,6 +180,123 @@ def test_edited_endpoint_discards_discovered_identity_and_role(qtbot):
     assert dialog.device().kind == 'AUTO'
 
 
+def test_edited_discovered_endpoint_removes_generated_aliases_only(qtbot):
+    original = Device('WLC', '192.0.2.11', 'MD', origin='discovered',
+                      identity=DeviceIdentity(switch_ip='2001:db8::11', hostname='old-wlc'),
+                      mappings=('2001:0db8:0:0:0:0:0:11', 'old-wlc', 'operator-alias'))
+    dialog = DeviceDialog(device=original)
+    qtbot.addWidget(dialog)
+    dialog.host_edit.setText('192.0.2.12')
+    edited = dialog.device()
+    assert edited.mappings == ('operator-alias',)
+    assert edited.identity is None
+    assert edited.kind == 'AUTO'
+
+
+def test_edited_discovered_port_removes_old_generated_aliases(qtbot):
+    original = Device('WLC', '192.0.2.11', 'MD', origin='discovered',
+                      identity=DeviceIdentity(switch_ip='192.0.2.11', hostname='old-wlc'),
+                      mappings=('192.0.2.11', 'old-wlc', 'operator-alias'))
+    dialog = DeviceDialog(device=original)
+    qtbot.addWidget(dialog)
+    dialog.port_edit.setValue(2222)
+    assert dialog.device().mappings == ('operator-alias',)
+
+
+def test_endpoint_edit_keeps_explicit_mapping_edits(qtbot):
+    original = Device('WLC', '192.0.2.11', 'MD', origin='discovered',
+                      identity=DeviceIdentity(switch_ip='192.0.2.11', hostname='old-wlc'),
+                      mappings=('192.0.2.11', 'old-wlc'))
+    dialog = DeviceDialog(device=original)
+    qtbot.addWidget(dialog)
+    dialog.host_edit.setText('192.0.2.12')
+    dialog.mappings_edit.setText('old-wlc, operator-alias')
+    assert dialog.device().mappings == ('old-wlc', 'operator-alias')
+
+
+def test_endpoint_edit_preserves_manual_device_mappings(qtbot):
+    original = Device('WLC', '192.0.2.11', 'MD', origin='manual',
+                      identity=DeviceIdentity(switch_ip='192.0.2.11', hostname='old-wlc'),
+                      mappings=('192.0.2.11', 'old-wlc'))
+    dialog = DeviceDialog(device=original)
+    qtbot.addWidget(dialog)
+    dialog.host_edit.setText('192.0.2.12')
+    assert dialog.device().mappings == ('192.0.2.11', 'old-wlc')
+
+
+def test_endpoint_edit_reprobe_save_reload_uses_new_identity_aliases(qtbot, tmp_path):
+    from aruba_client_live_tracker.config import load_devices
+
+    original = Device('WLC', '192.0.2.11', 'MD', origin='discovered',
+                      identity=DeviceIdentity(switch_ip='192.0.2.11', hostname='old-wlc'),
+                      mappings=('192.0.2.11', 'old-wlc', 'operator-alias'))
+    editor = DeviceDialog(device=original)
+    qtbot.addWidget(editor)
+    editor.host_edit.setText('192.0.2.12')
+    edited = editor.device()
+
+    class FreshIdentity(FakeDiscovery):
+        def probe(self, devices, cancel=None):
+            return result([replace(device, kind='MD',
+                                   identity=DeviceIdentity(switch_ip='192.0.2.12', hostname='new-wlc',
+                                                           reported_role='MD'))
+                           for device in devices])
+
+    probe = DiscoveryDialog(edited, [edited], Credentials('x', 'y'), tmp_path / 'known_hosts',
+                            service_factory=FreshIdentity, initial_devices=[edited])
+    qtbot.addWidget(probe)
+    qtbot.waitUntil(lambda: probe.register_button.isEnabled())
+    probe.register_selected()
+    settings = SettingsDialog(probe.devices, tmp_path / 'settings.json')
+    qtbot.addWidget(settings)
+    settings.save()
+    restored = load_devices(settings.settings_path)
+    assert restored[0].kind == 'MD'
+    assert restored[0].mappings == ('operator-alias', '192.0.2.12', 'new-wlc')
+    assert restored[0].identity.hostname == 'new-wlc'
+
+
+def test_settings_recovery_save_shows_backup_path(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from aruba_client_live_tracker.config import load_devices
+    path = tmp_path / 'settings.json'
+    original = b'{broken settings'
+    path.write_bytes(original)
+    dialog = SettingsDialog([Device('WLC', '192.0.2.11', 'MD')], path)
+    qtbot.addWidget(dialog)
+    messages = []
+    monkeypatch.setattr(QMessageBox, 'information', lambda _parent, title, body: messages.append((title, body)))
+    dialog.save()
+    backups = list(tmp_path.glob('settings.json.recovery-*.bak'))
+    assert len(backups) == 1 and backups[0].read_bytes() == original
+    assert load_devices(path) == dialog.devices
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    assert len(messages) == 1
+    assert '백업' in messages[0][1] and str(backups[0]) in messages[0][1]
+
+
+def test_settings_recovery_backup_failure_preserves_original_and_stays_open(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from aruba_client_live_tracker import config
+    path = tmp_path / 'settings.json'
+    original = b'{broken settings'
+    path.write_bytes(original)
+    dialog = SettingsDialog([Device('WLC', '192.0.2.11', 'MD')], path)
+    qtbot.addWidget(dialog)
+    messages = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda _parent, title, body: messages.append((title, body)))
+    def fail_copy(*args):
+        raise OSError('backup write failed')
+    monkeypatch.setattr(config.shutil, 'copyfileobj', fail_copy)
+    dialog.save()
+    assert path.read_bytes() == original
+    assert dialog.result() == QDialog.DialogCode.Rejected
+    assert len(messages) == 1
+    assert list(tmp_path.glob('settings.json.recovery-*.bak')) == []
+
+
 def test_direct_probe_promotes_manual_auto_and_preserves_mapping(qtbot, tmp_path):
     original = Device('개별 장비', '192.0.2.11', 'AUTO', mappings=('manual-11',))
     dialog = DiscoveryDialog(original, [original], Credentials('x', 'y'), tmp_path / 'known_hosts',

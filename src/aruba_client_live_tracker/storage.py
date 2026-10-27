@@ -8,11 +8,14 @@ from __future__ import annotations
 import csv
 import html
 import json
+import os
 import re
 import sqlite3
+import tempfile
 import threading
 from bisect import bisect_right
 from collections.abc import Iterable
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -139,6 +142,47 @@ def _csv_safe(value: Any) -> str:
     return text
 
 
+def _read_history_record(encoded: str, *, event: bool = False) -> dict:
+    """Reject damaged persisted JSON without exposing its contents in errors."""
+    try:
+        data = json.loads(encoded)
+        if not isinstance(data, dict):
+            raise ValueError
+        if event:
+            if any(not isinstance(data.get(key), str) for key in
+                   ('kind', 'message', 'severity', 'at', 'recommendation', 'hypothesis')):
+                raise ValueError
+            if not isinstance(data.get('facts'), dict):
+                raise ValueError
+        else:
+            if not isinstance(data.get('collected_at'), str):
+                raise ValueError
+            for key in ('field_status', 'evidence'):
+                mapping = data.get(key, {})
+                if not isinstance(mapping, dict) or any(not isinstance(value, str) for value in mapping.values()):
+                    raise ValueError
+        return data
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise ValueError('HISTORY_DATA_INVALID: 이력 데이터가 손상되어 읽을 수 없습니다. '
+                         '기존 DB를 보존하고 다른 이력을 선택하거나 백업을 확인하세요.') from exc
+
+
+@contextmanager
+def _report_output(destination: Path, encoding: str, newline: str | None = None):
+    """Publish a complete report only after its temporary sibling is flushed."""
+    fd, name = tempfile.mkstemp(prefix='.report-', suffix='.tmp', dir=destination.parent)
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        with temporary.open('w', encoding=encoding, newline=newline) as handle:
+            yield handle
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 class HistoryStore:
     """One serialized connection, usable from Qt's worker and GUI threads."""
 
@@ -182,6 +226,9 @@ class HistoryStore:
             self._db.rollback()
             self._db.close()
             raise
+        # Runtime writes are called by the GUI owner thread. A different app
+        # instance holding a write lock must not freeze that thread for 15 s.
+        self._db.execute("PRAGMA busy_timeout = 100")
 
     def __enter__(self) -> HistoryStore:
         return self
@@ -259,7 +306,7 @@ class HistoryStore:
             item = dict(row)
             item["diagnostics"] = _read_diagnostics(item.get("diagnostics", "[]"))
             encoded = item.pop("observation")
-            parsed = json.loads(encoded) if encoded else {}
+            parsed = _read_history_record(encoded) if encoded is not None else {}
             # Distinguish a successful field's timestamp from the poll-attempt time.
             parsed["observed_at"] = parsed.get("collected_at")
             parsed.update(item)
@@ -276,7 +323,8 @@ class HistoryStore:
                 "AND (? IS NULL OR at <= ?) ORDER BY id",
                 (session_id, first, first, last, last),
             ).fetchall()
-        return [dict(json.loads(row["data"]), id=row["id"], session_id=row["session_id"]) for row in rows]
+        return [dict(_read_history_record(row["data"], event=True), id=row["id"], session_id=row["session_id"])
+                for row in rows]
 
     def _session(self, session_id: int) -> dict:
         with self._lock:
@@ -290,7 +338,7 @@ class HistoryStore:
                    end: str | None = None) -> Path:
         session = self._session(session_id)
         destination = Path(path)
-        with destination.open("w", encoding="utf-8-sig", newline="") as handle:
+        with _report_output(destination, encoding="utf-8-sig", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(["기록 유형", "수집 시각", "유효 관측 시각", "상태", "가상 데이터", "오류",
                              *[label for _, label in _FIELDS], "항목별 상태", "수집 근거/항목별 관측 시각",
@@ -354,7 +402,8 @@ class HistoryStore:
                           f"<dt>추가 확인 사항</dt><dd>{escape(event['recommendation'])}</dd></dl></article>")
         pieces.append("<p>이 보고서는 로컬에서 생성되었습니다. 외부 전송 기능은 없습니다.</p></html>")
         destination = Path(path)
-        destination.write_text("".join(pieces), encoding="utf-8")
+        with _report_output(destination, encoding="utf-8") as handle:
+            handle.write("".join(pieces))
         return destination
 
     def _combined_rows(self, session_ids: Iterable[int], start: str | None,
@@ -433,7 +482,7 @@ class HistoryStore:
         """Export selected sessions as one chronological, spreadsheet-safe timeline."""
         rows = self._combined_rows(session_ids, start, end)
         destination = Path(path)
-        with destination.open("w", encoding="utf-8-sig", newline="") as handle:
+        with _report_output(destination, encoding="utf-8-sig", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(_COMBINED_HEADERS)
             writer.writerows([_csv_safe(value) for value in row] for row in rows)
@@ -469,7 +518,8 @@ class HistoryStore:
         pieces.append("</tbody></table></section><p>이 보고서는 로컬에서 생성되었습니다. "
                       "외부 전송 기능은 없습니다.</p></html>")
         destination = Path(path)
-        destination.write_text("".join(pieces), encoding="utf-8")
+        with _report_output(destination, encoding="utf-8") as handle:
+            handle.write("".join(pieces))
         return destination
 
     def close(self) -> None:

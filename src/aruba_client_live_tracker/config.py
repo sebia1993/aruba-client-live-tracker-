@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import tempfile
 from dataclasses import asdict
 from ipaddress import ip_address
@@ -93,7 +94,10 @@ def load_devices(path: Path) -> list[Device]:
                 if not isinstance(item['identity'], dict):
                     raise ValueError('장비 식별 정보 형식이 올바르지 않습니다.')
                 item['identity'] = DeviceIdentity(**item['identity'])
-            item['mappings'] = tuple(item.get('mappings', ()))
+            mappings = item.get('mappings', [])
+            if not isinstance(mappings, list):
+                raise ValueError('MD 매핑은 목록 형식이어야 합니다.')
+            item['mappings'] = tuple(mappings)
             devices.append(Device(**item))
         _validate(devices)
         return devices
@@ -101,13 +105,32 @@ def load_devices(path: Path) -> list[Device]:
         raise ValueError('장비 설정 파일 형식을 확인하세요.') from exc
 
 
-def save_devices(path: Path, devices: list[Device]) -> None:
+def save_devices(path: Path, devices: list[Device]) -> Path | None:
+    """Save settings, preserving unreadable originals in a unique recovery file."""
     _validate(devices)
     payload = json.dumps({'version': 2, 'devices': [asdict(d) for d in devices]}, ensure_ascii=False, indent=2)
     if len(payload.encode('utf-8')) > 1024 * 1024:
         raise ValueError('설정 파일이 너무 큽니다.')
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    backup = None
+    if path.exists():
+        try:
+            load_devices(path)
+        except (ValueError, OSError):
+            # Never replace unreadable settings unless their exact bytes have
+            # first been preserved. A failed backup leaves the original intact.
+            with path.open('rb') as original:
+                fd, name = tempfile.mkstemp(prefix=f'{path.name}.recovery-', suffix='.bak', dir=path.parent)
+                backup = Path(name)
+                try:
+                    with os.fdopen(fd, 'wb') as stream:
+                        shutil.copyfileobj(original, stream)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                except BaseException:
+                    backup.unlink(missing_ok=True)
+                    raise
     fd, temporary = tempfile.mkstemp(prefix='.settings-', dir=path.parent)
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as stream:
@@ -115,3 +138,4 @@ def save_devices(path: Path, devices: list[Device]) -> None:
         os.replace(temporary, path)
     finally:
         Path(temporary).unlink(missing_ok=True)
+    return backup

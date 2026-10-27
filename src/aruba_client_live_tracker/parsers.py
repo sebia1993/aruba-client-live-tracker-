@@ -26,6 +26,13 @@ _COUNT = re.compile(r"(?im)^\s*(?:Total\s+entries\s*=|Num\s+Clients\s*:)\s*(\d+)
 _COLUMN_ALIASES = {"ipaddress": "ip", "macaddress": "mac"}
 _MAC = r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}"
 _PROMPT = re.compile(r"^\s*(?:\([^\r\n]{1,100}\)\s*)?[\^*]{0,2}\s*(?:\[[^\r\n]{1,100}\]\s*)?[A-Za-z0-9_.:^*-]*[#>]\s*$")
+_ASSOCIATION_SUMMARY = re.compile(
+    r"\s*Total num of (?:dual-band capable clients(?: in (?:2\.4G|5G) band)?|"
+    r"clients in 6G band|single-band only clients):\s*\d+\s*"
+)
+# HPE show ap association, Description/Example (reviewed 2026-10-27).
+# Unknown/absent flag cells cannot establish that the active flag is absent.
+_ASSOCIATION_FLAGS = re.compile(r'[ABHKMRWwVPUOSEmCcpTt]{1,64}\Z')
 
 
 def reject_errors(output: str) -> None:
@@ -41,7 +48,8 @@ def _key(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
-def _table(output: str, required: tuple[str, ...], *, require_count: bool = False) -> list[dict[str, str]]:
+def _table(output: str, required: tuple[str, ...], *, require_count: bool = False,
+           association_summary: bool = False) -> list[dict[str, str]]:
     reject_errors(output)
     lines = output.splitlines()
     header_index = None
@@ -83,7 +91,7 @@ def _table(output: str, required: tuple[str, ...], *, require_count: bool = Fals
         if _PROMPT.fullmatch(line.strip()):
             continue
         if completed:
-            if re.match(r"\s*Total num of ", line):
+            if association_summary and _ASSOCIATION_SUMMARY.fullmatch(line):
                 continue
             raise ParseError("완료 건수 뒤에 알 수 없는 데이터가 있습니다.")
         if re.match(r"\s*(?:UAPSD:|HT Flags:|VHT Flags:|HT_State|Flags:)", line):
@@ -92,6 +100,8 @@ def _table(output: str, required: tuple[str, ...], *, require_count: bool = Fals
         if len(rows) >= 4096:
             raise ParseError("CLI 표가 허용 행 수를 초과했습니다.")
         rows.append(row)
+    if require_count and not completed:
+        raise ParseError("표 뒤의 완료 건수가 없어 조회 결과를 확정할 수 없습니다.")
     if require_count and len(rows) != int(counts[0].group(1)):
         raise ParseError("CLI 완료 건수와 실제 행 수가 달라 출력 누락이 의심됩니다.")
     return rows
@@ -126,23 +136,30 @@ def parse_user(output: str, mac: str) -> Observation | None:
     mac = normalize_mac(mac)
     if re.fullmatch(r"\s*(?:No users found\.?|No matching users\.?)\s*", output, re.I):
         return None
-    detail_mac = _capture(r"(?:^|[,\n])\s*MAC(?: Address)?\s*:\s*(" + _MAC + r")", output)
-    if detail_mac:
-        if normalize_mac(detail_mac) != mac:
-            raise ParseError("응답 MAC이 선택한 단말과 일치하지 않습니다.")
-        ip = _capture(r"(?:^|[,\n])\s*IP(?: Address)?\s*:\s*([0-9.]+)", output)
+    identity = {
+        field: re.findall(r"(?:^|[,\n])[ \t]*" + label + r"[ \t]*:[ \t]*([^,\n]*)", output, re.I)
+        for field, label in (("mac", r"MAC(?: Address)?"), ("ip", r"IP(?: Address)?"), ("role", "Role"))
+    }
+    if identity["mac"]:
+        # Each detail response must identify one complete record. Never take one
+        # record's identity and another record's policy or radio information.
+        if any(len(values) != 1 for values in identity.values()):
+            raise ParseError("MD 상세 응답의 IP/MAC/Role이 없거나 중복되어 단일 결과를 확정할 수 없습니다.")
         try:
-            ip = str(IPv4Address(ip)) if ip else None
+            detail_mac = normalize_mac(identity["mac"][0].strip())
+            ip = str(IPv4Address(identity["ip"][0].strip()))
         except ValueError as exc:
-            raise ParseError("MD IP 주소 형식을 인식하지 못했습니다.") from exc
-        role = _capture(r"(?:^|[,\n])\s*Role\s*:\s*([^,\n]+)", output)
-        if ip is None or not role:
+            raise ParseError("MD IP/MAC 주소 형식을 인식하지 못했습니다.") from exc
+        if detail_mac != mac:
+            raise ParseError("응답 MAC이 선택한 단말과 일치하지 않습니다.")
+        role = identity["role"][0].strip()
+        if not role:
             raise ParseError("MD 상세 응답에 필수 IP 또는 Role이 없어 결과를 확정할 수 없습니다.")
         auth = _capture(r"^\s*Authentication\s*:\s*([^,\n]+)", output)
         status = _capture(r"\bstatus\s*:\s*([^,\n]+)", output)
         return Observation(
             ip=ip, mac=mac,
-            role=_capture(r"(?:^|[,\n])\s*Role\s*:\s*([^,\n]+)", output),
+            role=role,
             vlan=_capture(r"^\s*Vlan default:.*?\bCurrent:\s*(\d+)", output),
             auth_method=_capture(r"\bmethod\s*:\s*([^,\n]+)", output),
             auth_result=" / ".join(x for x in (auth, status) if x) or None,
@@ -176,16 +193,29 @@ def parse_user(output: str, mac: str) -> Observation | None:
 
 
 def parse_association(output: str, mac: str) -> dict:
-    rows = _table(output, ("Name", "bssid", "mac", "assoc"), require_count=True)
+    rows = _table(output, ("Name", "bssid", "mac", "assoc", "Flags"),
+                  require_count=True, association_summary=True)
     mac = normalize_mac(mac)
-    matches = [r for r in rows if normalize_mac(r["mac"]) == mac]
-    active = [r for r in matches if r.get("assoc", "").lower() == "y" and ("flags" not in r or "A" in r["flags"])]
+    try:
+        matches = [row for row in rows if normalize_mac(row["mac"]) == mac]
+        for row in matches:
+            row["bssid"] = normalize_mac(row["bssid"])
+            row["assoc"] = row["assoc"].lower()
+            if not row["name"] or not row["name"].isprintable() or row["assoc"] not in ("y", "n"):
+                raise ValueError("incomplete association identity or state")
+            if not _ASSOCIATION_FLAGS.fullmatch(row['flags']):
+                raise ValueError('missing or unsupported association flags')
+            if row["assoc"] == "n" and "A" in row["flags"]:
+                raise ValueError("conflicting association state")
+    except (KeyError, ValueError) as exc:
+        raise ParseError("AP 연결 행의 MAC/BSSID/이름 또는 연결 상태를 확인할 수 없습니다.") from exc
+    active = [row for row in matches if row["assoc"] == "y" and "A" in row["flags"]]
     if len(active) > 1:
         raise ParseError("여러 AP가 활성 연결을 보고하여 현재 AP를 확정할 수 없습니다.")
     if not active:
         return {"connected": False}
     row = active[0]
-    fields = {"connected": True, "ap_name": row["name"], "bssid": normalize_mac(row["bssid"])}
+    fields = {"connected": True, "ap_name": row["name"], "bssid": row["bssid"]}
     for source, destination in [("essid", "ssid"), ("vlanid", "vlan"), ("channel", "channel")]:
         if row.get(source):
             fields[destination] = row[source]

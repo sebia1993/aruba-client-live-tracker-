@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .ui import TOOLTIPS, _Dashboard, add_row, display_time, table
+from .ui import TOOLTIPS, _Dashboard, add_row, display_time, fit_dialog_to_screen, table
 
 
 class MainWindow(_Dashboard):
@@ -79,6 +79,12 @@ class MainWindow(_Dashboard):
             label.setTextFormat(Qt.TextFormat.PlainText)
         self._monitor_changed()
         self._button_state()
+        screen = self.screen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            self.setMinimumSize(min(760, max(1, available.width() - 32)),
+                                min(560, max(1, available.height() - 64)))
+        fit_dialog_to_screen(self, 1280, 900)
 
     def _collector_factory(self, context):
         if self.mode.currentData():
@@ -425,21 +431,34 @@ class MainWindow(_Dashboard):
         super().open_settings()
 
     def closeEvent(self, event):
+        import sqlite3
         if self._closed:
             event.accept()
             return
         self.pending_close = True
         done = self.coordinator.close(wait=False)
         if not done or self.coordinator.busy:
-            self.status_note.setText('진행 중인 수집을 취소하고 연결을 정리하는 중입니다.')
+            if self.coordinator.busy:
+                self.status_note.setText('진행 중인 수집을 취소하고 연결을 정리하는 중입니다.')
+            else:
+                self.pending_close = False
+                self.status_note.setText('HISTORY_END_FAILED: 추적 종료 시각을 저장하지 못했습니다. '
+                                         '저장 공간과 권한을 확인한 뒤 창 닫기를 다시 시도하세요.')
             event.ignore()
             return
-        self._closed = True
-        self.timer.stop()
         if self.pool:
             self.pool.close()
             self.pool = None
         self._credentials_value = None
         self.collector = None
-        self.store.close()
+        try:
+            self.store.close()
+        except (OSError, sqlite3.Error):
+            self.pending_close = False
+            self.status_note.setText('HISTORY_CLOSE_FAILED: 이력 DB를 닫지 못했습니다. '
+                                     '저장 공간과 권한을 확인한 뒤 창 닫기를 다시 시도하세요.')
+            event.ignore()
+            return
+        self._closed = True
+        self.timer.stop()
         event.accept()

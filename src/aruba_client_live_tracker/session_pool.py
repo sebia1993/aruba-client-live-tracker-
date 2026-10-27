@@ -46,6 +46,7 @@ class _Entry:
     queue: deque[_Request] = field(default_factory=deque)
     active: _Request | None = None
     session: SSHSession | None = None
+    closing: bool = False
     retry_at: float = 0
     last_used: float = 0
 
@@ -65,25 +66,19 @@ class OwnerCommandRunner:
 
     def drop(self, device: Device) -> None:
         """Release failed endpoint interest, without closing another owner's work."""
+        closing = []
         with self._pool._condition:
             slot = self._pool._slot(device)
             if self._slots.get(slot) == (device.host, device.port):
-                self._pool._release(self, slot)
+                self._pool._release(self, slot, closing)
+        self._pool._close_sessions(closing)
 
     def close(self) -> None:
+        closing = []
         with self._pool._condition:
-            self._closed = True
-            if self._pool._runners.get(self.owner_id) is self:
-                del self._pool._runners[self.owner_id]
-            for entry in self._pool._entries.values():
-                if entry.active is not None and entry.active.owner is self:
-                    entry.active.cancel.set()
-                for request in entry.queue:
-                    if request.owner is self:
-                        request.cancel.set()
-            for slot in list(self._slots):
-                self._pool._release(self, slot)
+            self._pool._release_owner(self, closing)
             self._pool._condition.notify_all()
+        self._pool._close_sessions(closing)
 
 
 class SharedSessionPool:
@@ -126,20 +121,50 @@ class SharedSessionPool:
         return 'md' if device.kind == 'MD' else 'mm'
 
     @staticmethod
-    def _close_session(entry: _Entry) -> None:
+    def _detach_session(entry: _Entry, closing: list[tuple[_Entry, SSHSession]]) -> None:
         session, entry.session = entry.session, None
         if session is not None:
-            session.close()
+            entry.closing = True
+            closing.append((entry, session))
 
-    def _release(self, owner: OwnerCommandRunner, slot: str) -> None:
+    def _close_sessions(self, closing: list[tuple[_Entry, SSHSession]]) -> None:
+        """Finish detached transports outside the condition, retaining capacity meanwhile."""
+        while closing:
+            entry, session = closing.pop()
+            try:
+                session.close()
+            except Exception:
+                # Cleanup must not mask a command failure or strand its waiters.
+                pass
+            finally:
+                with self._condition:
+                    entry.closing = False
+                    self._condition.notify_all()
+
+    def _release(self, owner: OwnerCommandRunner, slot: str,
+                 closing: list[tuple[_Entry, SSHSession]]) -> None:
         endpoint = owner._slots.pop(slot, None)
         if endpoint is None or endpoint in owner._slots.values():
             return
         entry = self._entries[endpoint]
         entry.owners.discard(owner)
         if not entry.owners and entry.active is None:
-            self._close_session(entry)
+            self._detach_session(entry, closing)
         self._condition.notify_all()
+
+    def _release_owner(self, owner: OwnerCommandRunner,
+                       closing: list[tuple[_Entry, SSHSession]]) -> None:
+        owner._closed = True
+        if self._runners.get(owner.owner_id) is owner:
+            del self._runners[owner.owner_id]
+        for entry in self._entries.values():
+            if entry.active is not None and entry.active.owner is owner:
+                entry.active.cancel.set()
+            for request in entry.queue:
+                if request.owner is owner:
+                    request.cancel.set()
+        for slot in list(owner._slots):
+            self._release(owner, slot, closing)
 
     def _check(self, request: _Request) -> None:
         if self._closed or request.owner._closed or request.cancel.is_set():
@@ -147,15 +172,14 @@ class SharedSessionPool:
         if time.monotonic() >= request.deadline:
             raise SSHError('TIMEOUT', 'SSH 조회 대기 제한 시간이 초과되었습니다.', retryable=True)
 
-    def _capacity(self) -> bool:
-        sessions = [entry for entry in self._entries.values() if entry.session is not None]
+    def _capacity(self, closing: list[tuple[_Entry, SSHSession]]) -> bool:
+        sessions = [entry for entry in self._entries.values() if entry.session is not None or entry.closing]
         if len(sessions) < self.max_connections:
             return True
-        idle = [entry for entry in sessions if entry.active is None]
-        if not idle:
-            return False
-        self._close_session(min(idle, key=lambda entry: entry.last_used))
-        return True
+        idle = [entry for entry in sessions if entry.active is None and not entry.closing]
+        if idle:
+            self._detach_session(min(idle, key=lambda entry: entry.last_used), closing)
+        return False
 
     def _run(self, owner: OwnerCommandRunner, device: Device, command: str,
              cancel: threading.Event | None, deadline: float | None) -> str:
@@ -163,38 +187,47 @@ class SharedSessionPool:
         expires = time.monotonic() + INITIAL_CONNECTION_TIMEOUT if deadline is None else deadline
         request = _Request(owner, device, _Cancellation(cancel), expires)
         endpoint = (device.host, device.port)
+        closing = []
         with self._condition:
             self._check(request)
             # Discard retired metadata only after the shared cooldown expires.
             for key, old in list(self._entries.items()):
-                if not old.owners and not old.queue and old.active is None and old.retry_at <= time.monotonic():
-                    self._close_session(old)
-                    del self._entries[key]
+                if (not old.owners and not old.queue and old.active is None
+                        and not old.closing and old.retry_at <= time.monotonic()):
+                    self._detach_session(old, closing)
+                    if not old.closing:
+                        del self._entries[key]
             slot = self._slot(device)
             if owner._slots.get(slot) != endpoint:
-                self._release(owner, slot)
+                self._release(owner, slot, closing)
                 owner._slots[slot] = endpoint
             entry = self._entries.setdefault(endpoint, _Entry())
             entry.owners.add(owner)
             entry.queue.append(request)
-            try:
-                while True:
+        try:
+            while True:
+                self._close_sessions(closing)
+                with self._condition:
                     self._check(request)
                     if entry.retry_at > time.monotonic():
                         raise SSHError('COOLDOWN', 'SSH 통신 실패 후 재시도 대기 중입니다.', retryable=True)
-                    if entry.queue[0] is request and entry.active is None:
-                        if entry.session is not None or self._capacity():
+                    if entry.queue[0] is request and entry.active is None and not entry.closing:
+                        if entry.session is not None or self._capacity(closing):
                             if entry.session is None:
                                 entry.session = SSHSession(device, self.credentials, self.known_hosts, None)
                             entry.queue.popleft()
                             entry.active = request
                             session = entry.session
                             break
-                    self._condition.wait(min(0.05, max(0, expires - time.monotonic())))
-            except BaseException:
+                    if not closing:
+                        self._condition.wait(min(0.05, max(0, expires - time.monotonic())))
+        except BaseException:
+            with self._condition:
                 entry.queue.remove(request)
                 self._condition.notify_all()
-                raise
+            raise
+        finally:
+            self._close_sessions(closing)
 
         failed = False
         try:
@@ -211,19 +244,22 @@ class SharedSessionPool:
         finally:
             with self._condition:
                 if failed or not entry.owners or self._closed:
-                    self._close_session(entry)
+                    self._detach_session(entry, closing)
                 entry.active = None
                 entry.last_used = time.monotonic()
                 self._condition.notify_all()
+            self._close_sessions(closing)
 
     def close(self) -> None:
+        closing = []
         with self._condition:
             self._closed = True
             for runner in list(self._runners.values()):
-                runner.close()
+                self._release_owner(runner, closing)
             for entry in self._entries.values():
                 if entry.active is None:
-                    self._close_session(entry)
+                    self._detach_session(entry, closing)
                 else:
                     entry.active.cancel.set()
             self._condition.notify_all()
+        self._close_sessions(closing)

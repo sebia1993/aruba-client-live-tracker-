@@ -186,3 +186,101 @@ def test_address_alias_does_not_hide_duplicate_md_rows():
     output = table(["IP Address", "MAC Address", "Role"], [row, row])
     with pytest.raises(ParseError):
         parse_user(output, MAC)
+
+
+@pytest.mark.parametrize("fault", ["missing_flags", "unknown_assoc", "blank_assoc", "missing_name", "bad_bssid", "conflicting_flags"])
+def test_association_incomplete_target_evidence_is_not_connection_or_absence(fault):
+    headers = ["Name", "bssid", "mac", "assoc", "Flags"]
+    row = ["LAB-AP", "02:00:00:00:10:01", MAC, "y", "WA"]
+    if fault == "missing_flags":
+        headers.pop()
+        row.pop()
+    elif fault == "unknown_assoc":
+        row[3] = "unknown"
+    elif fault == "blank_assoc":
+        row[3] = ""
+    elif fault == "missing_name":
+        row[0] = ""
+    elif fault == "bad_bssid":
+        row[1], row[3], row[4] = "invalid", "n", "W"
+    else:
+        row[3] = "n"
+    with pytest.raises(ParseError):
+        parse_association(table(headers, [row], "Num Clients:{count}"), MAC)
+
+
+def test_association_validates_inactive_target_rows_before_using_active_row():
+    output = table(["Name", "bssid", "mac", "assoc", "Flags"], [
+        ["LAB-AP", "02:00:00:00:10:01", MAC, "y", "WA"],
+        ["LAB-OLD", "invalid", MAC, "n", "W"],
+    ], "Num Clients:{count}")
+    with pytest.raises(ParseError):
+        parse_association(output, MAC)
+
+
+@pytest.mark.parametrize("rows", [[], [["LAB-OLD", "02:00:00:00:10:01", MAC, "n", "W"]]])
+def test_association_complete_empty_or_historical_table_remains_absent(rows):
+    output = table(["Name", "bssid", "mac", "assoc", "Flags"], rows, "Num Clients:{count}")
+    assert parse_association(output, MAC) == {"connected": False}
+
+
+def test_documented_inactive_association_flags_keep_case_and_remain_inactive():
+    output = table(['Name', 'bssid', 'mac', 'assoc', 'Flags'], [
+        ['LAB-OLD', '02:00:00:00:10:01', MAC, 'n', 'BHKMRWwVPUOSEmCcpTt'],
+    ], 'Num Clients:{count}')
+    assert parse_association(output, MAC) == {'connected': False}
+
+
+@pytest.mark.parametrize("other_mac", [MAC, "02:00:00:00:00:02", "invalid"])
+@pytest.mark.parametrize("first_complete", [False, True])
+def test_user_detail_multiple_records_cannot_merge_or_select_first(other_mac, first_complete):
+    first = f"IP: 192.0.2.100, MAC: {MAC}" + (", Role: first" if first_complete else "")
+    second = f"IP: 192.0.2.101, MAC: {other_mac}, Role: second\nEssid: OTHER, Bssid: 02:00:00:00:20:01 AP name/group: OTHER-AP/lab"
+    with pytest.raises(ParseError):
+        parse_user(first + "\n" + second, MAC)
+
+
+@pytest.mark.parametrize("duplicate", ["IP: 192.0.2.101", "Role: other"])
+def test_user_detail_repeated_identity_fields_are_ambiguous(duplicate):
+    with pytest.raises(ParseError):
+        parse_user(f"IP: 192.0.2.100, MAC: {MAC}, Role: first\n{duplicate}", MAC)
+
+
+@pytest.mark.parametrize("parser", ["global", "user", "association"])
+@pytest.mark.parametrize("populated", [False, True])
+def test_completed_table_requires_its_count_after_rows(parser, populated):
+    if parser == "association":
+        rows = [["LAB-AP", "02:00:00:00:10:01", MAC, "y", "WA"]] if populated else []
+        output = table(["Name", "bssid", "mac", "assoc", "Flags"], rows, "Num Clients:{count}")
+        def parse(out):
+            return parse_association(out, MAC)
+    else:
+        output = global_output() if populated else global_output([])
+        parse = (lambda out: parse_global_users(out, parse_target(MAC))) if parser == "global" else (lambda out: parse_user(out, MAC))
+    body, count = output.rsplit("\n", 1)
+    with pytest.raises(ParseError):
+        parse(count + "\n" + body)
+
+
+@pytest.mark.parametrize("trailer", ["Total num of arbitrary text", "Total num of dual-band capable clients:unknown"])
+def test_completed_table_rejects_unknown_summary_trailers(trailer):
+    output = table(["Name", "bssid", "mac", "assoc", "Flags"], [], "Num Clients:{count}")
+    with pytest.raises(ParseError):
+        parse_association(output + "\n" + trailer, MAC)
+    with pytest.raises(ParseError):
+        parse_global_users(global_output([]) + "\n" + trailer, parse_target(MAC))
+
+
+def test_association_accepts_documented_numeric_summary_trailers():
+    output = table(["Name", "bssid", "mac", "assoc", "Flags"], [], "Num Clients:{count}")
+    output += "\n" + "\n".join([
+        "Total num of dual-band capable clients:0",
+        "Total num of dual-band capable clients in 2.4G band:0",
+        "Total num of dual-band capable clients in 5G band:0",
+        "Total num of clients in 6G band:0",
+        "Total num of single-band only clients:0",
+        "(LAB-MD) [mynode] #",
+    ])
+    assert parse_association(output, MAC) == {"connected": False}
+    with pytest.raises(ParseError):
+        parse_global_users(global_output([]) + "\nTotal num of dual-band capable clients:0", parse_target(MAC))

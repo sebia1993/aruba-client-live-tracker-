@@ -112,7 +112,7 @@ def add_row(widget: QTableWidget, values: list, maximum: int = 500, *, scroll: b
         widget.scrollToBottom()
 
 
-def fit_dialog_to_screen(dialog: QDialog, width: int, height: int) -> None:
+def fit_dialog_to_screen(dialog: QWidget, width: int, height: int) -> None:
     """Keep initial content inside the current logical screen with frame space."""
     screen = dialog.screen()
     if screen is None:
@@ -252,6 +252,11 @@ class DeviceDialog(QDialog):
                 values['origin'] = 'manual'
             if (values['host'], values['port']) != (self.original.host, self.original.port):
                 values['identity'] = None
+                if self.original.origin == 'discovered' and values['mappings'] == self.original.mappings:
+                    from .discovery import _mapping_key, _mappings
+                    generated = {_mapping_key(alias) for alias in _mappings(self.original.identity)}
+                    values['mappings'] = tuple(alias for alias in values['mappings']
+                                               if _mapping_key(alias) not in generated)
                 if self.original.origin == 'discovered' and values['kind'] == self.original.kind:
                     values['kind'] = 'AUTO'
             return replace(self.original, **values)
@@ -379,10 +384,13 @@ class SettingsDialog(QDialog):
     def save(self):
         from .config import save_devices
         try:
-            save_devices(self.settings_path, self.devices)
+            backup = save_devices(self.settings_path, self.devices)
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "설정 확인", str(exc))
             return
+        if backup is not None:
+            QMessageBox.information(self, "설정 복구 백업", "읽을 수 없던 기존 설정을 아래 파일에 백업한 뒤 새 설정을 저장했습니다.\n"
+                                    f"백업에는 기존 설정 내용이 포함되므로 이 PC에서만 보관하세요.\n{backup}")
         self.accept()
 
 
@@ -438,12 +446,19 @@ class HistoryDialog(QDialog):
         return [int(self.grid.item(index, 0).text()) for index in rows], start, end
 
     def show_history(self):
+        import sqlite3
         selected = self.selection()
         if not selected:
             return
         session, start, end = selected
-        observations = [dict(row, session_id=sid) for sid in session for row in self.store.observations(sid, start, end)]
-        events = [dict(row, session_id=sid) for sid in session for row in self.store.events(sid, start, end)]
+        try:
+            observations = [dict(row, session_id=sid) for sid in session for row in self.store.observations(sid, start, end)]
+            events = [dict(row, session_id=sid) for sid in session for row in self.store.events(sid, start, end)]
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            code = 'HISTORY_DATA_INVALID' if isinstance(exc, ValueError) else 'HISTORY_READ_FAILED'
+            self.preview.setPlainText(f'{code}: 이력을 읽을 수 없습니다. 기존 DB를 보존하고 다른 이력을 선택하거나 '
+                                      '저장 공간, 권한과 백업을 확인하세요.')
+            return
         observations.sort(key=lambda row: row.get("collected_at", ""))
         events.sort(key=lambda row: row.get("at", ""))
         text = [f"관측 {len(observations)}건 · 이벤트 {len(events)}건", "시각은 저장된 ISO 시각이며 원인은 별도 검증이 필요합니다."]
@@ -454,6 +469,7 @@ class HistoryDialog(QDialog):
         self.preview.setPlainText("\n".join(text))
 
     def export(self, extension: str):
+        import sqlite3
         selected = self.selection()
         if not selected:
             return
@@ -463,8 +479,9 @@ class HistoryDialog(QDialog):
         session, start, end = selected
         try:
             getattr(self.store, f"export_many_{extension}")(session, Path(path), start=start, end=end)
-        except (ValueError, OSError) as exc:
-            QMessageBox.warning(self, "내보내기 실패", str(exc))
+        except (ValueError, OSError, sqlite3.Error):
+            QMessageBox.warning(self, "내보내기 실패", "REPORT_WRITE_FAILED: 보고서를 저장하지 못했습니다. "
+                                "기존 보고서는 보존했습니다. 이력 상태, 저장 공간과 권한을 확인하세요.")
             return
         QMessageBox.information(self, "내보내기 완료", "보고서를 선택한 PC 경로에 저장했습니다. 외부로 전송하지 않았습니다.")
 
@@ -769,7 +786,14 @@ class _Dashboard(QMainWindow):
         return result.error
 
     def open_history(self):
-        HistoryDialog(self.store, self).exec()
+        import sqlite3
+        try:
+            dialog = HistoryDialog(self.store, self)
+        except (ValueError, OSError, sqlite3.Error):
+            QMessageBox.warning(self, "이력 확인", "HISTORY_READ_FAILED: 이력 목록을 읽을 수 없습니다. "
+                                "기존 DB를 보존하고 저장 공간, 권한과 백업을 확인하세요.")
+            return
+        dialog.exec()
 
     def open_diagnostics(self):
         dialog = QDialog(self)
@@ -798,6 +822,7 @@ class _Dashboard(QMainWindow):
         dialog.exec()
 
     def open_help(self):
+        from .runtime_info import runtime_help_text
         dialog = QDialog(self)
         dialog.setWindowTitle("초급 엔지니어 사용 도움말")
         dialog.resize(760, 580)
@@ -805,6 +830,7 @@ class _Dashboard(QMainWindow):
         text = QTextEdit()
         text.setReadOnly(True)
         text.setPlainText("사용 순서\n\n1. 처음에는 데모 모드를 선택하고 추적 시작을 누르세요. 모든 데이터는 가상입니다.\n2. 장비 연결 설정에서 MM 이름·관리 IP를 입력하고 MM에서 장비 찾기를 누르세요. 선택 장비 검사 후 등록하고 저장합니다. 개별 등록의 기본 AUTO는 판별 전까지 추적에서 제외됩니다. 고급 설정에서 역할·매핑을 수동 지정할 수 있습니다.\n3. 장비 연결 모드를 선택하고 IPv4 또는 MAC을 입력하세요. SSH 계정은 실행 중에만 사용합니다.\n4. 최초 SSH 서버 키는 질문 없이 이 PC에 자동 저장합니다. 키가 변경되면 인증 전에 차단합니다. 공통 계정은 발견·추적에서 재사용하며 전체 중지 후 변경할 수 있습니다.\n5. 다중 모니터링에서는 최대 10개 대상을 등록하거나 여러 줄로 붙여넣습니다. 목록의 행을 선택하면 해당 대상의 기존 상세와 그래프가 표시됩니다. 선택 대상 또는 전체 시작·중지·일시 정지·재개·새로고침을 사용할 수 있습니다.\n6. 여러 클라이언트가 검색된 행은 검색 결과 선택 버튼을 눌러 직접 결정하세요. 다른 대상은 계속 수집합니다.\n7. 데모/장비 연결 모드와 단일/다중 추적, 시나리오, 장비 설정은 전체 중지 후 변경하세요. 이력에서 여러 세션을 선택해 통합 보고서를 저장할 수 있습니다.\n\n지표 읽기\n\nSNR은 신호와 잡음의 차이입니다. 마지막 패킷 시각의 값일 수 있으며 높은 값이 일반적으로 유리합니다.\nRSSI는 실제 신호 출처가 있을 때만 표시합니다. ClientMatch 과거값은 현재 RSSI로 사용하지 않습니다.\nTx/Rx PHY Rate는 무선 링크 속도이며 실제 다운로드/업로드 속도가 아닙니다.\nRole은 인증 이후 적용되는 접근 정책입니다. Role만으로 인증 성공이나 장애 원인을 단정하지 않습니다.\n\n실패와 연결 해제\n\n조회 실패 시 이전 조회값을 보존합니다. 그래프의 공백은 유효 관측이 없다는 뜻입니다. SSH 실패는 로밍·연결 해제로 기록하지 않습니다. 여러 정상 관측의 단말 부재로 연결 해제를 판단합니다.\n\n이력과 개인정보\n\nSQLite와 설정, 신뢰한 서버 키는 사용자별 로컬 데이터 폴더에 저장합니다. 추적 이력에서 기간을 선택해 CSV/HTML로 내보낼 수 있습니다. 원문·보고서에는 사용자 정보가 포함될 수 있으므로 공개 GitHub에 업로드하지 마세요. 외부 분석/자동 업로드 기능은 없습니다.\n\n검증 범위\n\nArubaOS CLI 지원과 권한, 출력 형식은 버전·실행 위치에 따라 다릅니다. 자동 테스트는 가상 출력 기반이며 실제 ArubaOS 8.10 장비 검증은 사용자가 수행해야 합니다.")
+        text.setPlainText(runtime_help_text() + '\n\n' + text.toPlainText())
         layout.addWidget(text)
         dialog.exec()
 

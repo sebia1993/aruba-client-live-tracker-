@@ -161,8 +161,26 @@ def test_ip_search_pins_mac_after_resolution(collector):
 
 def test_ambiguous_same_mac_multiple_md_does_not_guess(collector):
     FakeSSH.mm_output = global_output([["192.0.2.100", MAC, "", "192.0.2.20", "r", "", "A"], ["192.0.2.100", MAC, "", "192.0.2.21", "r", "", "B"]])
-    assert collector.poll(parse_target(MAC), selected_mac=MAC).outcome == Outcome.AMBIGUOUS
+    result = collector.poll(parse_target(MAC), selected_mac=MAC)
+    assert result.outcome == Outcome.ERROR
+    assert result.diagnostics[-1].code == "MM_LOCATION_AMBIGUOUS"
+    assert not result.candidates
     assert len(FakeSSH.instances) == 1
+
+
+def test_same_mac_location_conflict_retries_pinned_identity_and_recovers(collector):
+    FakeSSH.mm_output = global_output([["192.0.2.100", MAC, "", "192.0.2.20", "r", "", "A"],
+                                     ["192.0.2.100", MAC, "", "192.0.2.21", "r", "", "B"]])
+    target = parse_target("192.0.2.100")
+    result = collector.poll(target)
+    assert result.outcome == Outcome.ERROR
+    assert result.diagnostics[-1].code == "MM_LOCATION_AMBIGUOUS"
+    assert len(FakeSSH.instances) == 1
+    FakeSSH.mm_output = global_output()
+    recovered = collector.poll(target)
+    assert recovered.outcome == Outcome.OK
+    assert recovered.observation.mac == MAC
+    assert FakeSSH.instances[0].commands[-1] == global_user_command(parse_target(MAC))
 
 
 def test_mm_parser_error_never_fails_over_or_disconnects(collector):
@@ -428,3 +446,77 @@ def test_output_budget_failure_keeps_prior_raw(collector, monkeypatch):
     assert result.diagnostics[-1].stage == "md_command"
     assert result.mm_status == f"{MM.name} 연결 정상"
     assert list(result.raw.values()) == [global_output()]
+
+
+@pytest.mark.parametrize('assoc,flags', [('unknown', 'WA'), ('y', ''), ('y', '?'), ('y', 'unknown')])
+def test_unknown_association_never_emits_disconnect(collector, monkeypatch, assoc, flags):
+    from aruba_client_live_tracker.tracker import Tracker
+
+    tracker = Tracker()
+    tracker.apply(collector.poll(parse_target(MAC)))
+    original_run = FakeSSH.run
+
+    def run(session, command, **kwargs):
+        if "show ap association" in command:
+            return table(["Name", "bssid", "mac", "assoc", "Flags"],
+                         [["LAB-AP-A", "02:00:00:00:10:01", MAC, assoc, flags]],
+                         "Num Clients:{count}")
+        return original_run(session, command, **kwargs)
+
+    monkeypatch.setattr(FakeSSH, "run", run)
+    for _ in range(2):
+        result = collector.poll(parse_target(MAC))
+        view = tracker.apply(result)
+        assert result.outcome == Outcome.OK
+        assert result.observation.field_status["connected"] == "확인 불가"
+        assert any(d.code == "PARSE_FAILED" for d in result.diagnostics)
+        assert view.state == "세션 발견 · 무선 연결 확인 불가"
+        assert not any(event.kind in ("connected", "reconnected", "disconnected", "roam") for event in view.events)
+
+
+@pytest.mark.parametrize("missing", ["Tx_Pkts", "Rx_Pkts", "Tx_Retries"])
+@pytest.mark.parametrize("stats_available", [False, True])
+def test_partial_client_table_preserves_one_counter_family(collector, monkeypatch, missing, stats_available):
+    original_run = FakeSSH.run
+    headers = ["MAC", "ESSID", "BSSID", "Assoc_State", "Tx_Pkts", "Rx_Pkts", "Tx_Retries", "Tx_Rate", "Rx_Rate", "Last_Rx_SNR"]
+    values = [MAC, "LAB-WIFI", "02:00:00:00:10:01", "Associated", "900", "700", "40", "400", "300", "35"]
+    index = headers.index(missing)
+    headers.pop(index)
+    values.pop(index)
+
+    def run(session, command, **kwargs):
+        if "client-table" in command:
+            return table(headers, [values], "")
+        if "client-stats" in command and not stats_available:
+            return "% Invalid input"
+        return original_run(session, command, **kwargs)
+
+    monkeypatch.setattr(FakeSSH, "run", run)
+    result = collector.poll(parse_target(MAC))
+    obs = result.observation
+    assert result.outcome == Outcome.OK
+    assert (obs.snr, obs.tx_rate, obs.rx_rate) == (35, 400, 300)
+    assert (obs.tx_packets, obs.rx_packets, obs.retries) == ((100, 80, None) if stats_available else (None, None, None))
+    assert obs.retry_pct is None
+    if stats_available:
+        assert obs.evidence["counter_source"] == "client_stats"
+        assert all("client-stats" in obs.evidence[field] for field in ("tx_packets", "rx_packets"))
+    else:
+        assert "counter_source" not in obs.evidence
+        assert all(field not in obs.evidence for field in ("tx_packets", "rx_packets", "retries"))
+
+
+def test_complete_client_table_replaces_counter_family_together(collector, monkeypatch):
+    original_run = FakeSSH.run
+
+    def run(session, command, **kwargs):
+        if "client-table" in command:
+            return table(["MAC", "ESSID", "BSSID", "Assoc_State", "Tx_Pkts", "Rx_Pkts", "Tx_Retries", "Tx_Rate", "Rx_Rate"],
+                         [[MAC, "LAB-WIFI", "02:00:00:00:10:01", "Associated", "900", "700", "40", "400", "300"]], "")
+        return original_run(session, command, **kwargs)
+
+    monkeypatch.setattr(FakeSSH, "run", run)
+    obs = collector.poll(parse_target(MAC)).observation
+    assert (obs.tx_packets, obs.rx_packets, obs.retries) == (900, 700, 40)
+    assert obs.evidence["counter_source"] == "client_table"
+    assert all("client-table" in obs.evidence[field] for field in ("tx_packets", "rx_packets", "retries"))

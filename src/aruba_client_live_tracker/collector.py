@@ -279,13 +279,17 @@ class LiveCollector:
         context.result.mm_status = mm_status
         if not candidates:
             return context.finish(Outcome.ABSENT, mm_status=mm_status, md_status="조회 대상 없음", raw=raw)
-        identities = {(c.mac, c.current_switch) for c in candidates}
-        if len(candidates) != 1 or len(identities) != 1:
-            context.diagnose("CLIENT_AMBIGUOUS", "여러 단말 또는 담당 MD가 검색되어 선택이 필요합니다.")
+        identities = {candidate.mac for candidate in candidates}
+        if len(identities) > 1:
+            context.diagnose("CLIENT_AMBIGUOUS", "여러 단말이 검색되어 선택이 필요합니다.")
             return context.finish(Outcome.AMBIGUOUS, candidates=candidates,
-                              error="여러 클라이언트 또는 담당 MD가 검색되었습니다. 단말을 선택하십시오.", mm_status=mm_status, raw=raw)
+                              error="여러 클라이언트가 검색되었습니다. 단말을 선택하십시오.", mm_status=mm_status, raw=raw)
+        self._tracked_mac = candidates[0].mac
+        if len(candidates) != 1:
+            message = "동일 단말의 담당 MD 또는 사용자 정보가 일치하지 않습니다. 다음 조회에서 다시 확인합니다."
+            context.diagnose("MM_LOCATION_AMBIGUOUS", message)
+            return context.finish(Outcome.ERROR, error=message, mm_status=mm_status, md_status="관측 불일치", raw=raw)
         candidate = candidates[0]
-        self._tracked_mac = candidate.mac
         context.stage, context.command = "md_mapping", ""
         try:
             md = map_md(candidate.current_switch, self.devices)
@@ -364,12 +368,21 @@ class LiveCollector:
             obs.field_status["connected"] = "확인 불가"
         stats = optional("client_stats", stats_command(candidate.mac), parse_client_stats,
                          ("snr", "tx_packets", "rx_packets"))
-        if stats:
+        if any(field in stats for field in ("tx_packets", "rx_packets")):
             obs.evidence["counter_source"] = "client_stats"
         if obs.ap_name:
             try:
                 command = client_table_command(obs.ap_name)
-                wireless = optional("client_table", command, lambda out: parse_client_table(out, candidate.mac, expected_bssid=obs.bssid),
+                def wireless_parser(output: str) -> dict:
+                    values = parse_client_table(output, candidate.mac, expected_bssid=obs.bssid)
+                    counters = ("tx_packets", "rx_packets", "retries")
+                    if not all(field in values for field in counters):
+                        # Keep the existing frame counters together until a complete
+                        # packet-counter group can replace them. Rates/SNR remain usable.
+                        for field in counters:
+                            values.pop(field, None)
+                    return values
+                wireless = optional("client_table", command, wireless_parser,
                                     ("snr", "tx_rate", "rx_rate", "retries", "tx_packets", "rx_packets"))
                 if all(field in wireless for field in ("tx_packets", "rx_packets", "retries")):
                     obs.evidence["counter_source"] = "client_table"
