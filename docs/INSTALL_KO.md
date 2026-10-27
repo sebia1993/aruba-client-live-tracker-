@@ -7,10 +7,10 @@
 ZIP 전체를 사용자 문서 폴더 등에 풀고 `ArubaClientLiveTracker/ArubaClientLiveTracker.exe`를 실행합니다. `_internal`, `LICENSES`, `docs`를 삭제하거나 EXE만 복사하지 마십시오. Python 설치와 관리자 권한은 필요하지 않습니다. 서명되지 않은 파일이므로 SmartScreen 경고 시 출처와 SHA-256을 확인하고 조직 정책을 따릅니다.
 
 ```powershell
-Get-FileHash .\ArubaClientLiveTracker_v0.3.6_windows_x64.zip -Algorithm SHA256
+Get-FileHash .\ArubaClientLiveTracker_v0.3.7_windows_x64.zip -Algorithm SHA256
 ```
 
-`.sha256`와 비교하십시오. 자동 생성 `Source code (zip)`은 실행 배포가 아닙니다. `ArubaClientLiveTracker_v0.3.6_third_party_sources.zip`은 LGPL 대응 소스로 실행 ZIP과 함께 보관·재배포합니다. 애플리케이션 코드·테스트·워크플로·빌드 스크립트는 실행 ZIP의 `SOURCE`에도 들어 있습니다.
+`.sha256`와 비교하십시오. 자동 생성 `Source code (zip)`은 실행 배포가 아닙니다. `ArubaClientLiveTracker_v0.3.7_third_party_sources.zip`은 LGPL 대응 소스로 실행 ZIP과 함께 보관·재배포합니다. 애플리케이션 코드·테스트·워크플로·빌드 스크립트는 실행 ZIP의 `SOURCE`에도 들어 있습니다.
 
 ## 첫 실행
 
@@ -32,7 +32,7 @@ Git, Windows x64 Python 3.12 및 Windows PowerShell 5.1 또는 PowerShell 7에�
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pwsh -File build_windows.ps1 -Version 0.3.6
+pwsh -File build_windows.ps1 -Version 0.3.7
 ```
 
 스크립트는 버전 일치, 고정 의존성 설치·공지 검사, pytest, ruff, onedir 패키징, 라이선스 수집, 실제 EXE의 단일/10대 데모 스모크를 확인한 뒤 실행 ZIP·대응 소스 ZIP·각 SHA-256을 만듭니다. 실패하면 중단합니다. 각 EXE 실행은 90초로 제한되며 결과 JSON과 pytest JUnit XML은 `dist/validation` 및 실행 ZIP의 `validation`에 보관합니다. CI의 운영체제별 JUnit도 아티팩트로 남깁니다. Qt offscreen 검증은 Windows 11 실기 화면 검증과 다릅니다.
@@ -48,13 +48,13 @@ git remote -v
 git push -u origin main
 gh run list --repo sebia1993/aruba-client-live-tracker-
 # CI 성공을 확인한 뒤 태그를 게시합니다.
-git tag v0.3.6
-git push origin v0.3.6
+git tag v0.3.7
+git push origin v0.3.7
 gh run list --repo sebia1993/aruba-client-live-tracker- --workflow release.yml
-gh release view v0.3.6 --repo sebia1993/aruba-client-live-tracker-
+gh release view v0.3.7 --repo sebia1993/aruba-client-live-tracker-
 ```
 
-`origin` 주소는 `https://github.com/sebia1993/aruba-client-live-tracker-.git`입니다. CI의 Windows 빌드와 태그 릴리스는 GitHub Actions를 우선 사용합니다. 수동 워크플로 실행은 아티팩트만 만들고, 버전 태그 실행은 검증 후 Release를 게시하도록 구성했습니다. v0.3.6 페이지는 게시 후 `https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.6`입니다. Actions/Release의 실제 성공 여부는 실행 기록으로 확인합니다.
+`origin` 주소는 `https://github.com/sebia1993/aruba-client-live-tracker-.git`입니다. CI의 Windows 빌드와 태그 릴리스는 GitHub Actions를 우선 사용합니다. 수동 워크플로 실행은 아티팩트만 만들고, 버전 태그 실행은 검증 후 Release를 게시하도록 구성했습니다. v0.3.7 페이지는 게시 후 `https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.7`입니다. Actions/Release의 실제 성공 여부는 실행 기록으로 확인합니다.
 
 ## 실행 버전 확인과 복구
 
