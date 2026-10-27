@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -153,3 +154,184 @@ def test_initial_burst_cannot_pass_a_later_stalled_run(tmp_path):
     metrics.update(requested_seconds=100, elapsed_seconds=100)
     with pytest.raises(ValueError, match='SOAK_PERSISTENCE_STALLED'):
         verify_soak_database(path, metrics)
+
+
+@pytest.fixture
+def publishing_soak(qtbot, tmp_path):
+    from aruba_client_live_tracker.demo import DEMO_CLIENTS
+    from aruba_client_live_tracker.soak import SoakMonitor
+    from aruba_client_live_tracker.ui import MainWindow
+    window = MainWindow(data_path=tmp_path / 'data', demo=True, multi=True)
+    qtbot.addWidget(window)
+    window.scenario.setCurrentIndex(window.scenario.findData('normal'))
+    window.interval.setCurrentIndex(window.interval.findData(10))
+    window.add_many_targets('\n'.join(client.ip for client in DEMO_CLIENTS))
+    window.start_all()
+    qtbot.waitUntil(lambda: all(c.last_result is not None for c in window.coordinator.contexts.values()), timeout=5000)
+    window.timer.stop()
+    now, outcomes = [0.0], []
+    monitor = SoakMonitor(window, 100, tmp_path / 'result.json',
+                          lambda *values: outcomes.append(values), clock=lambda: now[0])
+    monitor.tick()
+    try:
+        yield monitor, now, outcomes
+    finally:
+        monitor.timer.stop()
+        window.close()
+
+
+def test_progress_permission_retry_preserves_previous_file_and_returns_to_qt(publishing_soak, qtbot, monkeypatch):
+    from PySide6.QtCore import QTimer
+    monitor, now, outcomes = publishing_soak
+    previous = monitor.report.read_bytes()
+    replace = Path.replace
+    denied = [True]
+
+    def temporarily_denied(path, target):
+        if Path(target) == monitor.report and denied[0]:
+            raise PermissionError(13, 'synthetic sharing conflict')
+        return replace(path, target)
+
+    monkeypatch.setattr(Path, 'replace', temporarily_denied)
+    now[0] = 1
+    started = time.monotonic()
+    monitor.tick()
+    assert time.monotonic() - started < .5, 'A failed publication must yield without sleeping/retrying in this tick.'
+    assert outcomes == [], 'A transient sharing conflict must not terminate the app.'
+    assert monitor.report.read_bytes() == previous
+
+    def next_gui_turn():
+        denied[0] = False
+        now[0] = 2
+        monitor.tick()
+
+    QTimer.singleShot(0, next_gui_turn)
+    qtbot.waitUntil(lambda: json.loads(monitor.report.read_text(encoding='utf-8'))['heartbeat_count'] == 3)
+    assert outcomes == []
+    assert not monitor.report.with_suffix('.tmp').exists()
+
+
+def test_progress_persistent_permission_failure_has_fixed_deadline(publishing_soak, monkeypatch):
+    monitor, now, outcomes = publishing_soak
+    previous = monitor.report.read_bytes()
+
+    def denied(path, target):
+        raise PermissionError(13, 'synthetic persistent denial')
+
+    monkeypatch.setattr(Path, 'replace', denied)
+    for instant in (1, 2, 3, 4, 5.999):
+        now[0] = instant
+        monitor.tick()
+        assert outcomes == [], 'The first permission error starts a fixed five-second recovery window.'
+        assert monitor.report.read_bytes() == previous
+    now[0] = 6
+    monitor.tick()
+    assert len(outcomes) == 1
+    assert outcomes[0][:2] == (9, 'SOAK_PROGRESS_WRITE_FAILED')
+    assert monitor.report.read_bytes() == previous
+    now[0] = 7
+    monitor.tick()
+    assert len(outcomes) == 1
+
+
+def test_progress_recovery_after_deadline_cannot_publish_or_pass(publishing_soak, monkeypatch):
+    monitor, now, outcomes = publishing_soak
+    previous = monitor.report.read_bytes()
+    replace = Path.replace
+
+    def denied_until_deadline(path, target):
+        if now[0] < 6:
+            raise PermissionError(13, 'synthetic sharing conflict')
+        return replace(path, target)
+
+    monkeypatch.setattr(Path, 'replace', denied_until_deadline)
+    now[0] = 1
+    monitor.tick()
+    assert outcomes == []
+    now[0] = 6
+    monitor.tick()
+    assert outcomes[0][:2] == (9, 'SOAK_PROGRESS_WRITE_FAILED')
+    assert monitor.report.read_bytes() == previous
+
+
+def test_progress_success_resets_only_the_permission_recovery_window(publishing_soak, monkeypatch):
+    monitor, now, outcomes = publishing_soak
+    replace = Path.replace
+
+    def intermittent_denial(path, target):
+        if now[0] != 2:
+            raise PermissionError(13, 'synthetic sharing conflict')
+        return replace(path, target)
+
+    monkeypatch.setattr(Path, 'replace', intermittent_denial)
+    for instant in (1, 2, 7, 11.999):
+        now[0] = instant
+        monitor.tick()
+        assert outcomes == []
+    assert json.loads(monitor.report.read_text(encoding='utf-8'))['elapsed_seconds'] == 2
+    now[0] = 12
+    monitor.tick()
+    assert outcomes[0][:2] == (9, 'SOAK_PROGRESS_WRITE_FAILED')
+
+
+def test_progress_retry_cannot_complete_soak_without_successful_publication(publishing_soak, monkeypatch):
+    monitor, now, outcomes = publishing_soak
+    monitor.seconds = 1
+    replace = Path.replace
+
+    def first_denied(path, target):
+        if now[0] == 1:
+            raise PermissionError(13, 'synthetic sharing conflict')
+        return replace(path, target)
+
+    monkeypatch.setattr(Path, 'replace', first_denied)
+    now[0] = 1
+    monitor.tick()
+    assert outcomes == []
+    now[0] = 2
+    monitor.tick()
+    assert len(outcomes) == 1 and outcomes[0][0] == 0
+    assert json.loads(monitor.report.read_text(encoding='utf-8'))['elapsed_seconds'] == 2
+
+
+def test_progress_nonpermission_write_error_fails_immediately(publishing_soak, monkeypatch):
+    import errno
+    monitor, now, outcomes = publishing_soak
+    previous = monitor.report.read_bytes()
+
+    def disk_full(path, *args, **kwargs):
+        raise OSError(errno.ENOSPC, 'synthetic disk full')
+
+    monkeypatch.setattr(Path, 'write_text', disk_full)
+    now[0] = 1
+    monitor.tick()
+    assert outcomes[0][:2] == (9, 'SOAK_PROGRESS_WRITE_FAILED')
+    assert monitor.report.read_bytes() == previous
+
+
+@pytest.mark.parametrize('invalid', [object(), float('nan')])
+def test_progress_invalid_json_fails_without_retry(publishing_soak, monkeypatch, invalid):
+    monitor, now, outcomes = publishing_soak
+    previous = monitor.report.read_bytes()
+    snapshot = monitor.snapshot
+    monkeypatch.setattr(monitor, 'snapshot', lambda: dict(snapshot(), invalid=invalid))
+    now[0] = 1
+    monitor.tick()
+    assert outcomes[0][:2] == (9, 'SOAK_PROGRESS_WRITE_FAILED')
+    assert monitor.report.read_bytes() == previous
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows file sharing prevents atomic replacement while a reader is open')
+def test_progress_real_windows_reader_lock_recovers_on_next_tick(publishing_soak):
+    monitor, now, outcomes = publishing_soak
+    previous = monitor.report.read_bytes()
+    with monitor.report.open('rb') as reader:
+        now[0] = 1
+        monitor.tick()
+        assert outcomes == [], 'A real Windows reader lock must be retried after returning to Qt.'
+        assert reader.read() == previous
+        assert monitor.report.read_bytes() == previous
+    now[0] = 2
+    monitor.tick()
+    assert outcomes == []
+    assert json.loads(monitor.report.read_text(encoding='utf-8'))['heartbeat_count'] == 3

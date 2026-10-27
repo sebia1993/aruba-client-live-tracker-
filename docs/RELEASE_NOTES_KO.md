@@ -10,4 +10,8 @@ Windows x64 ZIP 전체를 새 폴더에 풀고 `ArubaClientLiveTracker/ArubaClie
 
 장시간 진단은 새 합성 데이터 폴더만 사용하며 수집 정체·저장 공백·GUI 정지·리소스 증가를 별도로 확인합니다. 짧은 리허설이나 가속 반복을 8시간 완료로 표시하지 않습니다. 게시와 최종 결과는 [최신 검증 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/BUILD_VALIDATION_KO.md), 빌드 당시 pytest XML·EXE JSON은 ZIP의 validation 폴더에서 확인하십시오. [이전 v0.3.7 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.7/BUILD_VALIDATION_KO.md)을 보존했습니다.
 
+Windows에서 진행 파일을 읽고 교체하는 순간의 일시적인 권한 오류는 제한된 시간만 재시도합니다. 앱은 GUI를 막지 않고 다음 tick에서 다시 저장하며, 같은 진행 버전을 다시 읽어도 수집 정지로 오판하지 않습니다. 지속적인 권한 거부나 실제 진행 정지는 계속 실패 처리합니다.
+
+여러 SSH 연결의 서버 키 사전 읽기와 저장은 같은 잠금으로 보호합니다. Windows에서 정상 키 파일을 갱신하는 순간 읽기가 거부되는 경합을 막으며, 잠금 대기 중 취소·시간 제한과 실제 손상·키 변경 차단은 유지합니다.
+
 실제 Aruba 장비는 **실장비 검증 대기**입니다. OS의 동기 DNS 조회가 끝나지 않는 경우 취소/종료가 지연되는 제한도 남아 있습니다. 기존 설정·서버 키·이력을 보존하고 현장 운영 흐름을 확인하십시오.

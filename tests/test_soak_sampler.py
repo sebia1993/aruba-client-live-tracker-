@@ -274,6 +274,8 @@ def test_native_read_error_is_recorded_and_child_is_reaped(tmp_path, monkeypatch
     assert module.main(['--exe', sys.executable, '--directory', str(directory), '--seconds', '10']) == 1
     summary = json.loads((directory / 'summary.json').read_text(encoding='utf-8'))
     assert 'SAMPLER_ERROR:OSError' in summary['failures']
+    assert summary['error_context'] == {'stage': 'RESOURCE_SAMPLE', 'type': 'OSError',
+                                        'errno': None, 'winerror': None, 'attempts': 1}
     assert children[0].returncode is not None
 
 
@@ -297,3 +299,101 @@ def test_nonfinite_progress_still_writes_failure_summary(tmp_path, monkeypatch):
     summary = json.loads((directory / 'summary.json').read_text(encoding='utf-8'))
     assert summary['status'] == 'failed'
     assert 'SAMPLER_ERROR:ValueError' in summary['failures']
+
+
+def _open_windows_lock(path, share):
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                  ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.CreateFileW(str(path), 0x80000000, share, None, 3, 0x80, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    return kernel, handle
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows file sharing semantics')
+@pytest.mark.parametrize('operation', ['read', 'replace'])
+def test_transient_real_windows_file_lock_recovers(tmp_path, monkeypatch, operation):
+    """Actual sharing denial must not abort a run when the reader soon closes."""
+    import threading
+    import time
+    module = load_sampler()
+    path = tmp_path / 'progress.json'
+    path.write_text('{"value": 1}', encoding='utf-8')
+    kernel, handle = _open_windows_lock(path, 0 if operation == 'read' else 3)
+    failed_once = threading.Event()
+    release = threading.Event()
+    native_method = Path.read_text if operation == 'read' else Path.replace
+
+    def observed_operation(self, *args, **kwargs):
+        try:
+            return native_method(self, *args, **kwargs)
+        except PermissionError:
+            failed_once.set()
+            raise
+
+    def unlock():
+        try:
+            failed_once.wait(2)
+            time.sleep(.02)
+        finally:
+            kernel.CloseHandle(handle)
+            release.set()
+
+    monkeypatch.setattr(Path, 'read_text' if operation == 'read' else 'replace', observed_operation)
+    worker = threading.Thread(target=unlock)
+    worker.start()
+    try:
+        if operation == 'read':
+            assert module.read_json_object(path) == {'value': 1}
+        else:
+            module.atomic_json(path, {'value': 2})
+            assert module.read_json_object(path) == {'value': 2}
+        assert failed_once.is_set(), 'the real Windows denial was not exercised'
+    finally:
+        failed_once.set()
+        assert release.wait(3)
+        worker.join(timeout=1)
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows file sharing semantics')
+@pytest.mark.parametrize('operation', ['read', 'replace'])
+def test_persistent_windows_file_lock_fails_within_deadline(tmp_path, monkeypatch, operation):
+    import time
+    module = load_sampler()
+    monkeypatch.setattr(module, 'PERMISSION_RETRY_SECONDS', .05, raising=False)
+    path = tmp_path / 'progress.json'
+    path.write_text('{"value": 1}', encoding='utf-8')
+    kernel, handle = _open_windows_lock(path, 0 if operation == 'read' else 3)
+    started = time.monotonic()
+    try:
+        with pytest.raises(PermissionError):
+            if operation == 'read':
+                module.read_json_object(path)
+            else:
+                module.atomic_json(path, {'value': 2})
+        assert time.monotonic() - started < .5
+    finally:
+        kernel.CloseHandle(handle)
+    assert module.read_json_object(path) == {'value': 1}
+
+
+def test_atomic_report_disk_error_preserves_previous_report(tmp_path, monkeypatch):
+    import errno
+    module = load_sampler()
+    path = tmp_path / 'summary.json'
+    path.write_text('{"previous": true}', encoding='utf-8')
+
+    def no_space(self, target):
+        raise OSError(errno.ENOSPC, 'synthetic disk full')
+
+    monkeypatch.setattr(Path, 'replace', no_space)
+    with pytest.raises(OSError) as error:
+        module.atomic_json(path, {'new': True})
+    assert error.value.errno == errno.ENOSPC
+    assert module.read_json_object(path) == {'previous': True}

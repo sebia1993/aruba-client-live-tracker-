@@ -22,6 +22,8 @@ from pathlib import Path
 
 EIGHT_HOURS = 28800
 PROGRESS_TIMEOUT_SECONDS = 60
+PERMISSION_RETRY_SECONDS = 1.0
+PERMISSION_MAX_ATTEMPTS = 51
 THRESHOLDS = {'private_bytes_absolute': 64 * 1024 * 1024, 'private_bytes_ratio': 0.25,
               'handles': 50, 'threads': 4}
 
@@ -30,17 +32,32 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def retry_permission(operation):
+    """Windows readers/atomic renames can briefly deny access; never retry forever."""
+    deadline = time.monotonic() + PERMISSION_RETRY_SECONDS
+    for attempt in range(1, PERMISSION_MAX_ATTEMPTS + 1):
+        try:
+            return operation()
+        except PermissionError as error:
+            remaining = deadline - time.monotonic()
+            if attempt == PERMISSION_MAX_ATTEMPTS or remaining <= 0:
+                error.soak_io_attempts = attempt
+                raise
+            time.sleep(min(.02, remaining))
+
+
 def atomic_json(path: Path, value: dict):
     temporary = path.with_suffix(path.suffix + '.tmp')
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8')
-    temporary.replace(path)
+    payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False)
+    retry_permission(lambda: temporary.write_text(payload, encoding='utf-8'))
+    retry_permission(lambda: temporary.replace(path))
 
 
 def read_json_object(path: Path):
     def reject_constant(value):
         raise ValueError('NONFINITE_JSON')
 
-    value = json.loads(path.read_text(encoding='utf-8'), parse_constant=reject_constant)
+    value = json.loads(retry_permission(lambda: path.read_text(encoding='utf-8')), parse_constant=reject_constant)
     if not isinstance(value, dict):
         raise ValueError('JSON_OBJECT_REQUIRED')
     return value
@@ -285,9 +302,9 @@ def run(args):
     final = None
     started = time.monotonic()
     last_progress = started
-    last_progress_stat = None
     previous_heartbeat = -1
     previous_elapsed = -1
+    stage = 'PROCESS_LAUNCH'
     try:
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -297,7 +314,9 @@ def run(args):
                                        stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
                                        startupinfo=startup, creationflags=subprocess.CREATE_NO_WINDOW)
         summary.update(status='running', pid=process.pid)
+        stage = 'SUMMARY_WRITE'
         atomic_json(summary_path, summary)
+        stage = 'RESOURCE_OPEN'
         sampler = WindowsSampler(process.pid)
         next_sample = started
         with (directory / 'resources.jsonl').open('x', encoding='utf-8') as stream:
@@ -306,30 +325,35 @@ def run(args):
                 if now - started > args.seconds + 120:
                     errors.append('PROCESS_TIMEOUT')
                     break
-                if progress_path.exists():
-                    current_stat = progress_path.stat().st_mtime_ns
-                    if current_stat != last_progress_stat:
-                        progress = read_json_object(progress_path)
-                        current_identity = {key: progress.get(key) for key in ('run_id', 'runtime')}
-                        if not current_identity['run_id'] or not isinstance(current_identity['runtime'], dict):
-                            raise ValueError('PROGRESS_IDENTITY_INVALID')
-                        if identity is None:
-                            identity = current_identity
-                            summary['progress_identity'] = identity
-                        elif identity != current_identity:
-                            raise ValueError('PROGRESS_IDENTITY_CHANGED')
-                        heartbeat = progress['heartbeat_count']
-                        elapsed = progress['elapsed_seconds']
+                stage = 'PROGRESS_READ'
+                try:
+                    progress = read_json_object(progress_path)
+                except FileNotFoundError:
+                    progress = None  # Startup or replacement race; watchdog is not extended.
+                if progress is not None:
+                    current_identity = {key: progress.get(key) for key in ('run_id', 'runtime')}
+                    if not current_identity['run_id'] or not isinstance(current_identity['runtime'], dict):
+                        raise ValueError('PROGRESS_IDENTITY_INVALID')
+                    if identity is None:
+                        identity = current_identity
+                        summary['progress_identity'] = identity
+                    elif identity != current_identity:
+                        raise ValueError('PROGRESS_IDENTITY_CHANGED')
+                    heartbeat = progress['heartbeat_count']
+                    elapsed = progress['elapsed_seconds']
+                    # Content is the version. An mtime read before atomic replacement
+                    # can belong to a different generation than the JSON body.
+                    if (heartbeat, elapsed) != (previous_heartbeat, previous_elapsed):
                         if heartbeat <= previous_heartbeat or elapsed <= previous_elapsed:
                             raise ValueError('PROGRESS_NOT_ADVANCING')
                         previous_heartbeat, previous_elapsed = heartbeat, elapsed
                         last_progress = now
-                        last_progress_stat = current_stat
                         summary['last_progress'] = progress
                 if now - last_progress > PROGRESS_TIMEOUT_SECONDS:
                     errors.append('PROGRESS_STALE')
                     break
                 if now >= next_sample:
+                    stage = 'RESOURCE_SAMPLE'
                     try:
                         sample = sampler.sample()
                     except OSError:
@@ -342,6 +366,7 @@ def run(args):
                     stream.flush()
                     summary.update(sample_count=len(samples), elapsed_seconds=now - started,
                                    last_sample=sample, updated_at=utc_now())
+                    stage = 'SUMMARY_WRITE'
                     atomic_json(summary_path, summary)
                     next_sample += args.sample_interval
                 time.sleep(.25)
@@ -349,12 +374,16 @@ def run(args):
             process.kill()  # Exact Popen child only; never a process-name or global taskkill.
         process.wait(timeout=10)
         if result_path.exists():
+            stage = 'RESULT_READ'
             final = read_json_object(result_path)
     except KeyboardInterrupt:
         errors.append('RUN_INTERRUPTED')
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as exc:
         errors.append(f'SAMPLER_ERROR:{type(exc).__name__}')
         # Error categories deliberately omit exception messages containing local paths/data.
+        summary['error_context'] = dict(stage=stage, type=type(exc).__name__,
+                                        errno=getattr(exc, 'errno', None), winerror=getattr(exc, 'winerror', None),
+                                        attempts=getattr(exc, 'soak_io_attempts', 1))
     finally:
         if sampler:
             sampler.close()

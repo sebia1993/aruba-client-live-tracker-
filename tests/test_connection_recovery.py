@@ -5,9 +5,13 @@ external DNS, credentials, GUI timing simulation or modified parser is involved.
 """
 from __future__ import annotations
 
+import re
 import socket
+import sqlite3
+import sys
 import threading
 import time
+from contextlib import ExitStack, closing
 
 import pytest
 from test_commands_parsers import MAC
@@ -90,12 +94,9 @@ def wait_until(predicate, *, manager=None, timeout=8):
 
 class RecoveryRig:
     def __init__(self, tmp_path):
-        self.servers = [FaultSSH("MM"), FaultSSH("MD"),
-                        FaultSSH("MM", OTHER_MAC), FaultSSH("MD", OTHER_MAC)]
-        self.bad = self.servers[1]
-        self.store = HistoryStore(tmp_path / "loopback-recovery.db")
-        self.pool = SharedSessionPool(Credentials("synthetic", "synthetic-secret"),
-                                      tmp_path / "known_hosts", max_connections=4, cooldown=0.25)
+        self._cleanup = ExitStack()
+        self.servers = []
+        self.manager = None
 
         def collector(context):
             start = 0 if context.target.value == MAC else 2
@@ -105,13 +106,61 @@ class RecoveryRig:
             return LiveCollector(devices, self.pool.credentials, self.pool.known_hosts,
                                  command_runner=self.pool.for_owner(context.id))
 
-        # Scheduling is manual; SSH timeout/cooldown uses real monotonic time.
-        self.manager = MonitoringCoordinator(self.store, collector, clock=lambda: 0)
-        self.failing = self.manager.add(MAC)
-        self.healthy = self.manager.add(OTHER_MAC)
-        self.manager.start_all()
-        wait_until(lambda: all(c.view for c in self.manager.contexts.values()), manager=self.manager)
-        assert all(c.last_result.outcome == Outcome.OK for c in self.manager.contexts.values())
+        stage = 'servers'
+        try:
+            for role, mac in (('MM', MAC), ('MD', MAC), ('MM', OTHER_MAC), ('MD', OTHER_MAC)):
+                server = FaultSSH(role, mac)
+                self._cleanup.callback(server.close)
+                self.servers.append(server)
+            self.bad = self.servers[1]
+            stage = 'history'
+            self.store = HistoryStore(tmp_path / "loopback-recovery.db")
+            self._cleanup.callback(self.store.close)
+            stage = 'pool'
+            self.pool = SharedSessionPool(Credentials("synthetic", "synthetic-secret"),
+                                          tmp_path / "known_hosts", max_connections=4, cooldown=0.25)
+            self._cleanup.callback(self.pool.close)
+            stage = 'coordinator'
+            # Scheduling is manual; SSH timeout/cooldown uses real monotonic time.
+            self.manager = MonitoringCoordinator(self.store, collector, clock=lambda: 0)
+            self._cleanup.callback(self._close_manager)
+            self.failing = self.manager.add(MAC)
+            self.healthy = self.manager.add(OTHER_MAC)
+            stage = 'start'
+            self.manager.start_all()
+            stage = 'initial_polls'
+            wait_until(lambda: all(c.view for c in self.manager.contexts.values()), manager=self.manager)
+            stage = 'initial_ok'
+            assert all(c.last_result.outcome == Outcome.OK for c in self.manager.contexts.values())
+        except BaseException as exc:
+            # A fixture has not yielded yet: register each acquired resource
+            # immediately and release all of them even if another close fails.
+            cleanup_code = 'ok'
+            try:
+                self._cleanup.close()
+            except Exception as cleanup_error:
+                cleanup_code = type(cleanup_error).__name__
+            if not isinstance(exc, Exception):
+                raise
+            diagnostics = self._setup_diagnostics()
+            raise AssertionError(f'RECOVERY_SETUP_FAILED stage={stage} code={type(exc).__name__} '
+                                 f'diagnostics={diagnostics} cleanup_code={cleanup_code}') from None
+
+    def _setup_diagnostics(self):
+        codes = set()
+        if self.manager is not None:
+            for context in self.manager.contexts.values():
+                if context.last_result is None:
+                    continue
+                for diagnostic in context.last_result.diagnostics:
+                    if (isinstance(diagnostic.stage, str) and isinstance(diagnostic.code, str)
+                            and re.fullmatch(r'[a-z_]{1,32}', diagnostic.stage)
+                            and re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', diagnostic.code)):
+                        codes.add(f'{diagnostic.stage}:{diagnostic.code}')
+        return ','.join(sorted(codes)[:16]) or 'none'
+
+    def _close_manager(self):
+        assert self.manager.close(wait=True), 'RECOVERY_CLEANUP_FAILED stage=coordinator'
 
     def batch(self):
         before = {identity: len(context.samples) for identity, context in self.manager.contexts.items()}
@@ -136,19 +185,19 @@ class RecoveryRig:
         assert not self.manager.busy
 
     def close(self):
-        started = time.monotonic()
-        assert self.manager.close(wait=True)
-        self.pool.close()
-        elapsed = time.monotonic() - started
-        assert elapsed < 2, f"loopback shutdown took {elapsed:.3f}s"
-        assert all(row["ended_at"] for row in self.store.sessions())
-        assert not self.pool._runners
-        assert all(entry.session is None and not entry.queue and entry.active is None
-                   for entry in self.pool._entries.values())
-        assert all(not thread.is_alive() for thread in self.manager._executor._threads)
-        self.store.close()
-        for server in self.servers:
-            server.close()
+        try:
+            started = time.monotonic()
+            self._close_manager()
+            self.pool.close()
+            elapsed = time.monotonic() - started
+            assert elapsed < 2, f"loopback shutdown took {elapsed:.3f}s"
+            assert all(row["ended_at"] for row in self.store.sessions())
+            assert not self.pool._runners
+            assert all(entry.session is None and not entry.queue and entry.active is None
+                       for entry in self.pool._entries.values())
+            assert all(not thread.is_alive() for thread in self.manager._executor._threads)
+        finally:
+            self._cleanup.close()
 
 
 @pytest.fixture
@@ -164,8 +213,97 @@ def rig(tmp_path, monkeypatch):
 
     monkeypatch.setattr(socket, "getaddrinfo", loopback_only)
     value = RecoveryRig(tmp_path)
-    yield value
-    value.close()
+    try:
+        yield value
+    finally:
+        value.close()
+
+
+@pytest.fixture
+def tracked_setup_resources(monkeypatch):
+    """Keep independent handles so a RED cleanup test cannot itself leak resources."""
+    resources = {name: [] for name in ('servers', 'history', 'pool', 'coordinator')}
+    failure_stage = [None]
+    module = sys.modules[__name__]
+    for name, stage in (('FaultSSH', 'servers'), ('HistoryStore', 'history'),
+                        ('SharedSessionPool', 'pool'), ('MonitoringCoordinator', 'coordinator')):
+        constructor = getattr(module, name)
+
+        def tracked(*args, _constructor=constructor, _stage=stage, **kwargs):
+            if failure_stage[0] == _stage and (_stage != 'servers' or len(resources[_stage]) == 2):
+                raise OSError('synthetic-private-path synthetic-secret')
+            resource = _constructor(*args, **kwargs)
+            resources[_stage].append(resource)
+            return resource
+
+        monkeypatch.setattr(module, name, tracked)
+    try:
+        yield resources, failure_stage
+    finally:
+        for manager in resources['coordinator']:
+            manager.close(wait=True)
+        for pool in resources['pool']:
+            pool.close()
+        for store in resources['history']:
+            store.close()
+        for server in resources['servers']:
+            server.close()
+
+
+def assert_setup_resources_released(resources):
+    for server in resources['servers']:
+        assert server.closed.is_set() and server.listener.fileno() == -1
+        assert not server.thread.is_alive()
+        assert all(not worker.is_alive() for worker in server.workers)
+    assert all(store._closed for store in resources['history'])
+    assert all(pool._closed for pool in resources['pool'])
+    for manager in resources['coordinator']:
+        assert manager._closed
+        assert all(not thread.is_alive() for thread in manager._executor._threads)
+
+
+@pytest.mark.parametrize('stage', ['servers', 'history', 'pool', 'coordinator', 'initial_ok'])
+def test_failed_recovery_setup_releases_every_created_resource_and_reports_safe_stage(
+    tmp_path, monkeypatch, tracked_setup_resources, stage,
+):
+    from aruba_client_live_tracker.models import Diagnostic, PollResult
+    resources, failure_stage = tracked_setup_resources
+    failure_stage[0] = stage
+
+    def invalid_known_hosts(*args, **kwargs):
+        return PollResult(Outcome.ERROR, error='synthetic-private-path synthetic-secret', diagnostics=[
+            Diagnostic('host_key', 'KNOWN_HOSTS_INVALID', 'synthetic-private-path synthetic-secret'),
+        ])
+
+    monkeypatch.setattr(LiveCollector, 'poll', invalid_known_hosts)
+    with pytest.raises(Exception) as failed:
+        RecoveryRig(tmp_path)
+    assert_setup_resources_released(resources)
+    assert f'RECOVERY_SETUP_FAILED stage={stage}' in str(failed.value)
+    assert 'synthetic-private-path' not in str(failed.value)
+    assert 'synthetic-secret' not in str(failed.value)
+    if stage == 'initial_ok':
+        assert 'host_key:KNOWN_HOSTS_INVALID' in str(failed.value)
+        with closing(sqlite3.connect((tmp_path / 'loopback-recovery.db').as_uri() + '?mode=ro', uri=True)) as db:
+            assert db.execute('SELECT count(*) FROM sessions').fetchone()[0] == 2
+            assert db.execute('SELECT count(*) FROM sessions WHERE ended_at IS NULL').fetchone()[0] == 0
+
+
+def test_recovery_teardown_assertion_still_closes_database_and_servers(
+    tmp_path, monkeypatch, tracked_setup_resources,
+):
+    from aruba_client_live_tracker.models import Observation, PollResult
+    resources, _ = tracked_setup_resources
+
+    def successful_poll(self, target, **kwargs):
+        return PollResult(Outcome.OK, Observation(mac=target.value, simulated=True))
+
+    monkeypatch.setattr(LiveCollector, 'poll', successful_poll)
+    value = RecoveryRig(tmp_path)
+    monkeypatch.setattr(value.store, 'sessions', lambda: [{'ended_at': None}])
+    with pytest.raises(AssertionError):
+        value.close()
+    assert_setup_resources_released(resources)
 
 
 @pytest.mark.parametrize("fault", ["disconnect", "silent", "server_restart"])

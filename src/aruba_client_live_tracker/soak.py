@@ -87,6 +87,7 @@ class SoakMonitor:
         self.max_collection_gap = 0.0
         self.last_results = {}
         self.last_progress = {}
+        self._progress_failure_started = None
         self.done = False
         self.timer = QTimer(window)
         self.timer.setInterval(1000)
@@ -147,14 +148,24 @@ class SoakMonitor:
                 self.last_results[context.id] = context.last_result
                 self.last_progress[context.id] = now
         metrics = self.snapshot()
+        if self._progress_failure_started is not None and now - self._progress_failure_started >= 5:
+            self.complete(9, 'SOAK_PROGRESS_WRITE_FAILED')
+            return
         try:
             self.report.parent.mkdir(parents=True, exist_ok=True)
             temporary = self.report.with_suffix('.tmp')
-            temporary.write_text(json.dumps({'runtime': self.identity, **metrics}), encoding='utf-8')
+            temporary.write_text(json.dumps({'runtime': self.identity, **metrics}, allow_nan=False), encoding='utf-8')
             temporary.replace(self.report)
-        except OSError:
+        except PermissionError:
+            # A Windows reader can briefly prevent atomic replacement. Return
+            # to Qt after one attempt; never extend this first-failure deadline.
+            if self._progress_failure_started is None:
+                self._progress_failure_started = now
+            return
+        except (OSError, ValueError, TypeError):
             self.complete(9, 'SOAK_PROGRESS_WRITE_FAILED')
             return
+        self._progress_failure_started = None
         if now - self.started >= self.seconds:
             if metrics['independent_macs'] != 10:
                 self.complete(9, 'SOAK_TARGETS_INCOMPLETE')
