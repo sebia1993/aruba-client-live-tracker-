@@ -578,7 +578,9 @@ def test_prompt_status_change_preserves_same_device_identity(make, initial, fina
     channel.pending = deque([('Synthetic CLI\r\n' + initial).encode()])
     session, _, _ = make(channel=channel)
     try:
-        assert session.run('show switches', deadline=time.monotonic() + 0.5) == 'Total entries = 0'
+        # This checks prompt identity, not disk speed: first use also fsyncs
+        # known_hosts, which can exceed 0.5 seconds on shared Windows runners.
+        assert session.run('show switches', deadline=time.monotonic() + 5) == 'Total entries = 0'
     finally:
         session.close()
 
