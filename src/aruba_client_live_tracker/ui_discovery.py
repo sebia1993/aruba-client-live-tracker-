@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout
 
 from .models import DIAGNOSTIC_STAGE_LABELS, Diagnostic
-from .ui import add_row, table
+from .ui import add_row, fit_dialog_to_screen, table
 
 
 def diagnostic_text(diagnostics):
@@ -75,6 +75,7 @@ class DiscoveryDialog(QDialog):
             self.candidates = list(initial_devices)
             self._render({(d.host, d.port) for d in initial_devices})
             self.probe_selected()
+        fit_dialog_to_screen(self, 1120, 650)
 
     def _launch(self, operation, payload):
         if self._closed or self._busy:

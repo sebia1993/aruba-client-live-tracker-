@@ -8,7 +8,7 @@
 |---|---|
 | 버전 | pyproject·패키지·Windows 빌드·대응 소스 기본값 0.3.0 |
 | 공개 원격 | `https://github.com/sebia1993/aruba-client-live-tracker-.git` (이름 끝 하이픈 포함) |
-| Linux/Windows 자동 테스트·정적 검사 | Linux Python 3.12: 305개 통과(최종 21.90초), Ruff·diff 검사 통과. Windows 결과 대기 |
+| Linux/Windows 자동 테스트·정적 검사 | Linux Python 3.12: 307개 통과(최종 20.95초), Ruff·diff 검사 통과. Windows 결과 대기 |
 | 의존성 공지 검사 | 2026-10-27 고정 의존성 25개 검사, 공개 공지 영향 패키지 0개. Qt/PySide 6.8.3와 Paramiko 5.0.0 유지 |
 | 간편 설정·발견 화면 | 실제 Qt 설정·발견·단일·10대 화면을 docs/assets/v030-*.png에 캡처 |
 | 단일/10대 소스 데모 | Linux Qt offscreen 종료 코드 0. 단일 5회, 10대 각 5회(합계 50회) SQLite 저장 및 독립 MAC 수 확인 |
@@ -20,11 +20,13 @@
 
 ## 로컬 검증
 
-`QT_QPA_PLATFORM=offscreen python -m pytest -q --junitxml=artifacts/pytest-v030.xml`에서 305개 모두 통과했습니다. 실 TCP loopback Paramiko 서버로 최초 키 자동 저장, 변경 키의 비밀번호 인증 전 차단, MM 발견 및 별도 관리 주소의 MD 역할 검사를 확인했습니다. 별도 프로세스의 신뢰 파일 충돌·취소·기한도 검사했습니다.
+`QT_QPA_PLATFORM=offscreen python -m pytest -q --junitxml=artifacts/pytest-v030.xml`에서 최종 307개 모두 통과했습니다. 실 TCP loopback Paramiko 서버로 최초 키 자동 저장, 변경 키의 비밀번호 인증 전 차단, MM 발견 및 별도 관리 주소의 MD 역할 검사를 확인했습니다. 별도 프로세스의 신뢰 파일 충돌·취소·기한도 검사했습니다.
 
 최초 통합 실행은 안내 문구 기대값 차이로 1개 실패(301개 통과)했고 실제 진단 의미를 유지한 기대값으로 수정했습니다. 독립 리뷰에서 발견한 500행 이후 장비 선택 오류는 전체 장비 행을 보존하도록 수정했으며, 501행 회귀 테스트와 독립 1,001행 검사를 통과했습니다. 최종 소스/설계 리뷰에서 확인된 미해결 결함은 없습니다.
 
 첫 GitHub CI [40436681206](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40436681206)의 Ubuntu 실행은 304개 통과·1개 실패였습니다. 명령 시간 초과 검사가 초기 연결 전체에 40ms를 부여해, CI의 파일 저장 지연 때문에 서버 키 단계 시간 초과가 먼저 발생했습니다. 해당 검사를 인증·최초 프롬프트 완료 뒤 명령 읽기 단계의 가상 시계를 진행하도록 분리했습니다. 느린 fsync 재현에서도 통과했고, 수정 후 로컬 전체 305개를 다시 통과했습니다. 최종 CI 결과는 별도 기록합니다. 이 실패를 정상으로 처리하거나 예외 코드 검사를 제거하지 않습니다.
+
+후속 CI [40437075203](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40437075203)는 Ubuntu·Windows 모두 성공했습니다(커밋 7878fc6). Windows Server 2025 x64·Python 3.12.10에서 305개 테스트, 네이티브 EXE 단일/10대 스모크를 통과했습니다. 이후 작은 논리 화면에서 설정·발견 창의 초기 높이를 화면에 맞추는 수정을 추가했습니다. 실제 Qt 910×512 논리 화면 모의 검사에서 두 창 878×448, 모든 버튼 표시를 확인했고 큰 화면 기본 크기도 보존합니다. 이 변경 후 307개 전체 테스트와 정적 검사, 독립 리뷰를 통과했으며 최종 Windows CI를 재실행합니다. 실제 Windows 11 고배율 실기는 여전히 미검증입니다.
 
 ## 보존할 증거
 

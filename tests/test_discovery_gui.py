@@ -337,3 +337,40 @@ def test_discovery_501_devices_preserve_seed_and_last_selection(qtbot, tmp_path)
     assert [device.name for device in ManyDiscovery.instances[-1].probed] == ['MM', 'WLC-499']
     dialog.register_selected()
     assert [device.name for device in dialog.devices] == ['MM', 'WLC-499']
+
+
+def test_initial_dialog_sizes_fit_small_available_screen(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtGui import QScreen
+    from PySide6.QtWidgets import QPushButton
+    monkeypatch.setattr(QScreen, 'availableGeometry', lambda self: QRect(0, 0, 910, 512))
+    settings = SettingsDialog([], tmp_path / 'settings.json')
+    discovery = DiscoveryDialog(Device('가상 MM', '192.0.2.1', 'AUTO'), [], Credentials('x', 'y'),
+                                tmp_path / 'known_hosts', service_factory=FakeDiscovery)
+    for dialog in (settings, discovery):
+        qtbot.addWidget(dialog)
+        dialog.show()
+    qtbot.waitUntil(lambda: discovery.grid.rowCount() == 3)
+    for dialog in (settings, discovery):
+        assert dialog.width() <= 910 - 32
+        assert dialog.height() <= 512 - 64
+        for button in dialog.findChildren(QPushButton):
+            top_left = button.mapTo(dialog, QPoint(0, 0))
+            assert dialog.rect().contains(QRect(top_left, button.size()))
+            assert top_left.y() + button.height() <= 512 - 64
+        dialog.reject()
+
+
+def test_initial_dialog_defaults_preserved_on_large_screen(qtbot, tmp_path, monkeypatch):
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QScreen
+    monkeypatch.setattr(QScreen, 'availableGeometry', lambda self: QRect(0, 0, 1920, 1080))
+    settings = SettingsDialog([], tmp_path / 'settings.json')
+    discovery = DiscoveryDialog(Device('가상 MM', '192.0.2.1', 'AUTO'), [], Credentials('x', 'y'),
+                                tmp_path / 'known_hosts', service_factory=FakeDiscovery)
+    qtbot.addWidget(settings)
+    qtbot.addWidget(discovery)
+    assert (settings.width(), settings.height()) == (1080, 640)
+    assert (discovery.width(), discovery.height()) == (1120, 650)
+    settings.reject()
+    discovery.reject()

@@ -112,6 +112,18 @@ def add_row(widget: QTableWidget, values: list, maximum: int = 500, *, scroll: b
         widget.scrollToBottom()
 
 
+def fit_dialog_to_screen(dialog: QDialog, width: int, height: int) -> None:
+    """Keep initial content inside the current logical screen with frame space."""
+    screen = dialog.screen()
+    if screen is None:
+        dialog.resize(width, height)
+        return
+    available = screen.availableGeometry()
+    minimum = dialog.minimumSizeHint()
+    dialog.resize(max(minimum.width(), min(width, max(1, available.width() - 32))),
+                  max(minimum.height(), min(height, max(1, available.height() - 64))))
+
+
 class SignalChart(QWidget):
     """Bounded two-panel chart; failures create real gaps instead of zeroes."""
 
@@ -290,6 +302,7 @@ class SettingsDialog(QDialog):
             controls.addWidget(button)
         layout.addLayout(controls)
         self.render()
+        fit_dialog_to_screen(self, 1080, 640)
 
     def render(self):
         self.grid.setRowCount(0)
