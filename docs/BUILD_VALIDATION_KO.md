@@ -130,6 +130,25 @@ GitHub Actions의 공개 배포 빌드는 이 제품 소스 fingerprint와 빌�
 
 로컬 증거: `artifacts/large-history-report.md`, `artifacts/storage-faults-report.md`, `artifacts/connection-recovery-report.md`, `artifacts/soak-sampler-report.md`, `artifacts/stability-review.md`. 실행 방법과 기준은 [연속 검증 안내](STABILITY_RUN_KO.md)에 있습니다.
 
+## 공개 v0.3.8 다운로드 검증과 검사 기한 보완
+
+[v0.3.8 릴리스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.8)는 불변 태그 `2bdc908f9373861eb8f25df102d24a508002a788`에서 게시됐습니다. [PR #3](https://github.com/sebia1993/aruba-client-live-tracker-/pull/3)의 병합 커밋 `ddaa1fc`는 같은 소스 트리입니다. 태그 직전 CI 40575968018과 릴리스 실행 40577888540의 실제 validation artifact를 확인했습니다. 릴리스 빌드 전체 708개와 단일/10대 frozen smoke가 통과했습니다.
+
+공개 URL에서 인증 없이 ZIP 2개·체크섬 2개를 새로 내려받고 GitHub digest 및 체크섬을 대조했습니다. 공개 ZIP을 별도 한글·공백 경로에 풀어 Python을 제외한 자식 PATH·격리 TEMP로 단일/10대 EXE 실행을 각각 5회 통과했습니다. 총 275건 관측과 55개 세션 정상 종료, 읽기 전용 SQLite 무결성·FK, SOURCE 246개 해시·제품 fingerprint·Git 없는 재수출·제3자 소스 6개 해시를 확인했습니다. 최종 실측 문서 3개와 배포 문서 58개가 태그 및 SOURCE와 일치합니다. 이 반복 검사는 offscreen이며 새로운 시각적 GUI 검사로 계산하지 않습니다.
+
+| 공개 산출물 | 크기 | SHA-256 |
+|---|---:|---|
+| Windows x64 ZIP | 43,585,267 bytes | `6d35e08af18716a7d9781dcfe54c52631256e2295990140f4166ea60aaaa77fe` |
+| 제3자 대응 소스 ZIP | 72,212,226 bytes | `f887e684e62fadfea82148bdd0e42c41a83b48d03be5ec7cadfc0cb9081a5df5` |
+
+공개 EXE SHA-256은 `6882bd4b9e02cf83791c055aca8d215cd53df01412c393d35759204b09f1dabe`입니다. 로컬 8시간 EXE와 파일 바이트는 다르며 전체 제품 fingerprint `506867ece370eae4e485c3f2a34307b8c92af611f1c36c2c7166c3b11e57a55d` 및 빌드 ID가 일치합니다. 공개 EXE 바이트 자체를 8시간 실행했다고 주장하지 않습니다.
+
+병합 후 CI 40577865756에서는 첫 Windows 전체 708개가 통과했지만 빌드 재검사에서 707개 통과·1개 실패했습니다. 잘못된 프롬프트를 거부하는 테스트가 최초 키 저장까지 포함한 0.2초 기한을 사용해, 프롬프트 검사에 도달하기 전에 `HOST_KEY_TIMEOUT`을 받았습니다. 원본 실패 XML·로그·artifact를 보존했습니다. CI에서 실제로 지연된 OS 연산의 원인은 확정하지 못했습니다.
+
+테스트의 키 저장에 합성 0.25초 지연을 넣어 5개 프롬프트 변형 모두 동일 실패를 재현했습니다. 연결·키 저장은 5초로 먼저 완료하고, 그다음 잘못된 프롬프트 명령에 기존 0.2초 기한을 적용하도록 **테스트만** 보완했습니다. 두 명령의 실제 전송도 확인하며 SSH 전체 58개가 통과했습니다. 제품 소스·키 신뢰·프롬프트 규칙·공개 태그·배포 자산은 바뀌지 않았습니다. 후속 테스트 변경은 별도 PR/CI에서 확인합니다.
+
+게시 후 증거는 [공개 릴리스 검증 기록](validation/v0.3.8/release-verification.json)에 보관합니다. 이 절과 게시 후 JSON은 불변 ZIP 바깥의 저장소 후속 기록입니다. ZIP 내부의 최종 8시간 문서와 소스는 태그 상태로 유지됩니다.
+
 ## 현장 경계
 
 운영 장비·실제 자격 증명·고객 데이터는 사용하지 않았습니다. 실제 Aruba 장비는 **실장비 검증 대기**입니다. 이번 수정은 발견 CLI·파서 의미·서버 키 신뢰 정책을 바꾸지 않습니다. 8시간 native EXE 시험도 데모/GUI/SQLite/Windows 자원에 관한 증거이며 실제 SSH는 별도 루프백 시험으로 구분합니다.

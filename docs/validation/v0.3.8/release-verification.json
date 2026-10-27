@@ -1,0 +1,466 @@
+{
+  "schema_version": 1,
+  "status": "published-and-download-verified",
+  "verified_at": "2026-10-27T20:38:52.079433+00:00",
+  "release_url": "https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.8",
+  "release_id": 425953385,
+  "tag": "v0.3.8",
+  "tag_commit": "2bdc908f9373861eb8f25df102d24a508002a788",
+  "pull_request": "https://github.com/sebia1993/aruba-client-live-tracker-/pull/3",
+  "merge_commit": "ddaa1fcca791e74a0676a2ef2e7b7fa61f696068",
+  "tag_and_merge_trees_identical": true,
+  "immutable_release_unchanged": true,
+  "assets": [
+    {
+      "name": "ArubaClientLiveTracker_v0.3.8_third_party_sources.zip",
+      "url": "https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.8/ArubaClientLiveTracker_v0.3.8_third_party_sources.zip",
+      "bytes": 72212226,
+      "sha256": "f887e684e62fadfea82148bdd0e42c41a83b48d03be5ec7cadfc0cb9081a5df5",
+      "github_digest_matches": true,
+      "authentication_sent": false
+    },
+    {
+      "name": "ArubaClientLiveTracker_v0.3.8_third_party_sources.zip.sha256",
+      "url": "https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.8/ArubaClientLiveTracker_v0.3.8_third_party_sources.zip.sha256",
+      "bytes": 120,
+      "sha256": "6405a78bf8ad1470ab51bd0ef788f533d8b279eaf22355cab74b41740b26f0e0",
+      "github_digest_matches": true,
+      "authentication_sent": false
+    },
+    {
+      "name": "ArubaClientLiveTracker_v0.3.8_windows_x64.zip",
+      "url": "https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.8/ArubaClientLiveTracker_v0.3.8_windows_x64.zip",
+      "bytes": 43585267,
+      "sha256": "6d35e08af18716a7d9781dcfe54c52631256e2295990140f4166ea60aaaa77fe",
+      "github_digest_matches": true,
+      "authentication_sent": false
+    },
+    {
+      "name": "ArubaClientLiveTracker_v0.3.8_windows_x64.zip.sha256",
+      "url": "https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.3.8/ArubaClientLiveTracker_v0.3.8_windows_x64.zip.sha256",
+      "bytes": 112,
+      "sha256": "6009a088e55fd892c0274482301013be2eafaa56ff5b90341a527fcf0b24e33a",
+      "github_digest_matches": true,
+      "authentication_sent": false
+    }
+  ],
+  "package": {
+    "version": "0.3.8",
+    "build_id": "0.3.8-506867ece370",
+    "windows_zip": {
+      "name": "ArubaClientLiveTracker_v0.3.8_windows_x64.zip",
+      "bytes": 43585267,
+      "sha256": "6d35e08af18716a7d9781dcfe54c52631256e2295990140f4166ea60aaaa77fe",
+      "members": 770
+    },
+    "third_party_sources": {
+      "name": "ArubaClientLiveTracker_v0.3.8_third_party_sources.zip",
+      "bytes": 72212226,
+      "sha256": "f887e684e62fadfea82148bdd0e42c41a83b48d03be5ec7cadfc0cb9081a5df5",
+      "verified_source_count": 6
+    },
+    "source_files_verified": 246,
+    "source_sha256": "506867ece370eae4e485c3f2a34307b8c92af611f1c36c2c7166c3b11e57a55d",
+    "machine": "AMD64",
+    "subsystem": "Windows GUI",
+    "requested_execution_level": "asInvoker",
+    "signed": false,
+    "python_removed_from_child_path": true,
+    "korean_space_paths": true,
+    "isolated_temp": true,
+    "gitless_source_reexport": true,
+    "exe_sha256": "6882bd4b9e02cf83791c055aca8d215cd53df01412c393d35759204b09f1dabe",
+    "runtime_success_count": 10,
+    "observation_count": 275,
+    "runtime_modes": {
+      "single": 5,
+      "multi": 5
+    },
+    "qt_platform": "offscreen",
+    "native_windows_binary": true,
+    "new_visible_gui_check": false
+  },
+  "pre_release_ci": {
+    "run_id": 40575968018,
+    "url": "https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40575968018",
+    "head_sha": "2bdc908f9373861eb8f25df102d24a508002a788",
+    "status": "completed",
+    "conclusion": "success",
+    "build_id": "0.3.8-506867ece370",
+    "xml_reports": [
+      {
+        "path": "validation-Linux/artifacts/pytest-Linux.xml",
+        "tests": 708,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 20,
+        "passed": 688,
+        "seconds": 203.12
+      },
+      {
+        "path": "validation-Windows/artifacts/pytest-Windows.xml",
+        "tests": 708,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 708,
+        "seconds": 278.358
+      },
+      {
+        "path": "validation-Windows/artifacts/pytest-windows-build.xml",
+        "tests": 708,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 708,
+        "seconds": 301.088
+      },
+      {
+        "path": "validation-Windows/dist/validation/pytest-windows-build.xml",
+        "tests": 708,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 708,
+        "seconds": 301.088
+      }
+    ],
+    "smoke_reports": [
+      {
+        "path": "validation-Linux/artifacts/source-single-smoke.json",
+        "success": true,
+        "mode": "source",
+        "build_id": "0.3.8-506867ece370",
+        "target_count": 1,
+        "observation_count": 5,
+        "min_observations_per_target": 5,
+        "source_sha256": null
+      },
+      {
+        "path": "validation-Linux/artifacts/source-multi-smoke.json",
+        "success": true,
+        "mode": "source",
+        "build_id": "0.3.8-506867ece370",
+        "target_count": 10,
+        "observation_count": 50,
+        "min_observations_per_target": 5,
+        "source_sha256": null
+      },
+      {
+        "path": "validation-Windows/artifacts/source-multi-smoke.json",
+        "success": true,
+        "mode": "source",
+        "build_id": "0.3.8-506867ece370",
+        "target_count": 10,
+        "observation_count": 50,
+        "min_observations_per_target": 5,
+        "source_sha256": null
+      },
+      {
+        "path": "validation-Windows/artifacts/source-single-smoke.json",
+        "success": true,
+        "mode": "source",
+        "build_id": "0.3.8-506867ece370",
+        "target_count": 1,
+        "observation_count": 5,
+        "min_observations_per_target": 5,
+        "source_sha256": null
+      },
+      {
+        "path": "validation-Windows/dist/validation/windows-exe-multi-smoke.json",
+        "success": true,
+        "mode": "frozen",
+        "build_id": "0.3.8-506867ece370",
+        "target_count": 10,
+        "observation_count": 50,
+        "min_observations_per_target": 5,
+        "source_sha256": null
+      },
+      {
+        "path": "validation-Windows/dist/validation/windows-exe-single-smoke.json",
+        "success": true,
+        "mode": "frozen",
+        "build_id": "0.3.8-506867ece370",
+        "target_count": 1,
+        "observation_count": 5,
+        "min_observations_per_target": 5,
+        "source_sha256": null
+      }
+    ],
+    "smoke_success_count": 6,
+    "artifacts": [
+      {
+        "name": "validation-Linux",
+        "id": 12768425214,
+        "sha256": "577dd2b0422ebd5f7ca1446017d67fb8a89eeaa02b93385692a5d0c7659c4f87",
+        "github_digest_matches": true,
+        "bytes": 16857
+      },
+      {
+        "name": "validation-Windows",
+        "id": 12768391303,
+        "sha256": "ba9afb41d0a30db1142e1733cee4ecf9d5060b96a2bb2575dc7273f3bdca5644",
+        "github_digest_matches": true,
+        "bytes": 49052
+      }
+    ],
+    "windows_build_xml_duplicate_identical": true,
+    "notes": [
+      "Duplicate Windows build XML is recorded but not counted as another test run.",
+      "No archive scripts or EXEs were executed by this inspection.",
+      "Smoke JSON confirms build ID; full source fingerprint is only checked where provided."
+    ]
+  },
+  "release_workflow": {
+    "run_id": 40577888540,
+    "url": "https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40577888540",
+    "head_sha": "2bdc908f9373861eb8f25df102d24a508002a788",
+    "status": "completed",
+    "conclusion": "success",
+    "build_id": "0.3.8-506867ece370",
+    "xml_reports": [
+      {
+        "path": "artifacts/pytest-windows-build.xml",
+        "tests": 708,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 708,
+        "seconds": 280.505
+      },
+      {
+        "path": "dist/validation/pytest-windows-build.xml",
+        "tests": 708,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 708,
+        "seconds": 280.505
+      }
+    ],
+    "smoke_reports": [
+      {
+        "path": "dist/validation/windows-exe-multi-smoke.json",
+        "success": true,
+        "mode": "frozen",
+        "build_id": "0.3.8-506867ece370",
+        "target_count": 10,
+        "observation_count": 50,
+        "min_observations_per_target": 5,
+        "source_sha256": null
+      },
+      {
+        "path": "dist/validation/windows-exe-single-smoke.json",
+        "success": true,
+        "mode": "frozen",
+        "build_id": "0.3.8-506867ece370",
+        "target_count": 1,
+        "observation_count": 5,
+        "min_observations_per_target": 5,
+        "source_sha256": null
+      }
+    ],
+    "smoke_success_count": 2,
+    "artifact": {
+      "name": "windows-release-validation",
+      "id": 12768098036,
+      "sha256": "6b0f195d94e502a80793dd544e7ef51f7ea2eb2881037491cb1a8c5107decda9",
+      "github_digest_matches": true,
+      "bytes": 32803
+    },
+    "windows_build_xml_duplicate_identical": true,
+    "notes": [
+      "Two paths contain the identical Windows build JUnit and represent one test execution.",
+      "Only frozen smoke reports are produced by this release workflow.",
+      "No artifact script or EXE was executed by this inspection.",
+      "Full product fingerprint must be verified against downloaded public package; smoke JSON build ID alone is a prefix."
+    ]
+  },
+  "merge_main_ci_before_test_followup": {
+    "run_id": 40577865756,
+    "url": "https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40577865756",
+    "head_sha": "ddaa1fcca791e74a0676a2ef2e7b7fa61f696068",
+    "status": "completed",
+    "conclusion": "failure",
+    "artifacts": [
+      {
+        "name": "validation-Linux",
+        "id": 12768650946,
+        "sha256": "5e70e52d06cb8eaf1cb08a51b8a621ef58189ec822f79375c52885000b68e4a9",
+        "github_digest_matches": true,
+        "bytes": 16875
+      },
+      {
+        "name": "validation-Windows",
+        "id": 12768871360,
+        "sha256": "abe9ac59702988b633aafe4f4c8881a08d854127079b7b3dc22b587cae94ea47",
+        "github_digest_matches": true,
+        "bytes": 32426
+      }
+    ],
+    "xml_reports": [
+      {
+        "path": "validation-Linux/artifacts/pytest-Linux.xml",
+        "tests": 708,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 20,
+        "passed": 688,
+        "seconds": 215.673,
+        "skip_reasons": {
+          "Windows build smoke lifecycle requires Windows PowerShell": 1,
+          "Windows file sharing prevents atomic replacement while a reader is open": 1,
+          "Windows native metrics only": 1,
+          "Windows runner only": 4,
+          "Windows file sharing semantics": 4,
+          "Real Windows sampler/child boundary": 8,
+          "native Win32 sharing handle requires Windows": 1
+        }
+      },
+      {
+        "path": "validation-Windows/artifacts/pytest-windows-build.xml",
+        "tests": 708,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 707,
+        "seconds": 257.541,
+        "skip_reasons": {}
+      },
+      {
+        "path": "validation-Windows/artifacts/pytest-Windows.xml",
+        "tests": 708,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 708,
+        "seconds": 254.444,
+        "skip_reasons": {}
+      }
+    ],
+    "smoke_reports": [
+      {
+        "path": "validation-Linux/artifacts/source-multi-smoke.json",
+        "success": true,
+        "runtime": {
+          "version": "0.3.8",
+          "build_id": "0.3.8-506867ece370",
+          "collector_revision": "ssh-stream-2",
+          "parser_revision": "switch-table-2",
+          "mode": "source"
+        },
+        "target_count": 10,
+        "observation_count": 50,
+        "min_observations_per_target": 5
+      },
+      {
+        "path": "validation-Linux/artifacts/source-single-smoke.json",
+        "success": true,
+        "runtime": {
+          "version": "0.3.8",
+          "build_id": "0.3.8-506867ece370",
+          "collector_revision": "ssh-stream-2",
+          "parser_revision": "switch-table-2",
+          "mode": "source"
+        },
+        "target_count": 1,
+        "observation_count": 5,
+        "min_observations_per_target": 5
+      },
+      {
+        "path": "validation-Windows/artifacts/source-multi-smoke.json",
+        "success": true,
+        "runtime": {
+          "version": "0.3.8",
+          "build_id": "0.3.8-506867ece370",
+          "collector_revision": "ssh-stream-2",
+          "parser_revision": "switch-table-2",
+          "mode": "source"
+        },
+        "target_count": 10,
+        "observation_count": 50,
+        "min_observations_per_target": 5
+      },
+      {
+        "path": "validation-Windows/artifacts/source-single-smoke.json",
+        "success": true,
+        "runtime": {
+          "version": "0.3.8",
+          "build_id": "0.3.8-506867ece370",
+          "collector_revision": "ssh-stream-2",
+          "parser_revision": "switch-table-2",
+          "mode": "source"
+        },
+        "target_count": 1,
+        "observation_count": 5,
+        "min_observations_per_target": 5
+      }
+    ],
+    "failures": [
+      {
+        "report": "validation-Windows/artifacts/pytest-windows-build.xml",
+        "classname": "tests.test_ssh",
+        "testcase": "test_changed_prompt_identity_does_not_complete_command[(LAB) %[mynode] #]",
+        "seconds": 0.222,
+        "type": "failure",
+        "message": "AssertionError: assert 'HOST_KEY_TIMEOUT' == 'TIMEOUT'\n  \n  - TIMEOUT\n  + HOST_KEY_TIMEOUT",
+        "traceback": "make = <function make.<locals>.factory at 0x000001D6DA10F600>\nfinal = '(LAB) %[mynode] #'\n\n    @pytest.mark.parametrize('final', [\n        '(OTHER) ^[mynode] #', '(LAB) ^[othernode] #', '(LAB) ^[mynode] >',\n        '(LAB) ^^[mynode] #', '(LAB) %[mynode] #',\n    ])\n    def test_changed_prompt_identity_does_not_complete_command(make, final):\n        channel = Channel('Total entries = 0\\r\\n' + final)\n        channel.pending = deque([b'Synthetic CLI\\r\\n(LAB) [mynode] #'])\n        session, _, _ = make(channel=channel)\n        try:\n            with pytest.raises(SSHError) as caught:\n                session.run('show switches', deadline=time.monotonic() + 0.2)\n>           assert caught.value.code == 'TIMEOUT'\nE           AssertionError: assert 'HOST_KEY_TIMEOUT' == 'TIMEOUT'\nE             \nE             - TIMEOUT\nE             + HOST_KEY_TIMEOUT\n\ntests\\test_ssh.py:599: AssertionError"
+      }
+    ],
+    "notes": [
+      "First Windows suite passed, but build rerun failed before PyInstaller/frozen smoke generation.",
+      "Changed-prompt rejection test had a 0.2-second shared deadline and reported HOST_KEY_TIMEOUT rather than expected TIMEOUT. XML alone does not identify which OS operation consumed the deadline.",
+      "Original downloaded artifacts preserved. No rerun or product source mutation performed."
+    ]
+  },
+  "post_release_test_followup": {
+    "file": "tests/test_ssh.py",
+    "cause": "The prompt rejection test shared its 0.2s command deadline with first-use host-key persistence. Its initial setup could expire before the prompt assertion was reached.",
+    "ci_os_operation_latency_cause": "Not established; the CI XML identifies HOST_KEY_TIMEOUT, not the exact delayed OS operation.",
+    "reproduction": "A synthetic 0.25s key-save delay reproduced HOST_KEY_TIMEOUT in all five invalid-prompt variants.",
+    "fix": "Complete first-use connection/key persistence with a 5s budget before applying the existing 0.2s deadline to the invalid-prompt command; assert both commands were sent.",
+    "red": {
+      "tests": 10,
+      "passed": 5,
+      "failed": 5
+    },
+    "green": {
+      "tests": 58,
+      "passed": 58,
+      "failed": 0,
+      "errors": 0,
+      "seconds": 13.565
+    },
+    "product_code_changed": false,
+    "security_or_prompt_rules_changed": false,
+    "published_tag_or_assets_replaced": false,
+    "ci_followup": "The tests-only follow-up is checked by its pull-request and main-branch workflows; this record preserves the original failed run."
+  },
+  "eight_hour_reference": "stability-eight-hour.json",
+  "eight_hour_tested_exe_sha256": "ece8dcb34b78d11b2d48ee1895c5f2ae84911f194f82f456e30d289264d4d9a3",
+  "eight_hour_applies_to_public_binary_bytes": false,
+  "scope": "The local EXE passed eight hours. The public Actions-built EXE has the same full product source fingerprint and passed separate download/package/runtime verification. Its different bytes were not run for eight hours.",
+  "packaged_final_documents": [
+    "docs/BUILD_VALIDATION_KO.md",
+    "docs/RELEASE_NOTES_KO.md",
+    "docs/validation/v0.3.8/stability-eight-hour.json"
+  ],
+  "packaged_docs_match_tag_and_source": true,
+  "post_publication_record_is_external_to_immutable_zip": true,
+  "independent_review_passed": true,
+  "limitations": [
+    "Synthetic/loopback testing does not establish real Aruba field validation.",
+    "Physical power loss and OS DNS termination latency were not verified.",
+    "EXE is unsigned; requested execution level is asInvoker."
+  ],
+  "local_evidence_sha256": {
+    "artifacts/published-v0.3.8/downloads.json": "afda83093f50d255205fd2d5d6e961a2521a20fa1475d0975dcfce261f89ab0c",
+    "artifacts/published-package-v038.json": "a76eff85eb56922cd96a0260f6ef630821add1b14b59d71f61935568e63e81eb",
+    "artifacts/published-v038-independent-review.json": "cb8f03fdc30173263f66945d47a4c78f87415eebf7f4396d1b14a4749ffd40e9",
+    "artifacts/release-v038-validation/40577888540/inspection.json": "e6bbf31d81cf77aa0b4cfd10930113a181463d5cb34cae3971d42374e9d1fc47",
+    "artifacts/ci-v038-main/40577865756/inspection.json": "bc4035aa61553d9559432b5a2b4c0eaf78ee1f9a2cc8b34f71afebf73be4dd22",
+    "artifacts/ci-v038-final/40575968018/inspection.json": "47b4e5f94466dcba07573814ef7c6a39c753a3aa3e875dd43f8bfa63f1f53d5e",
+    "artifacts/prompt-budget-red.xml": "b63a5039778aac04856fee54645c62432d735f375725574e4e5944cdbfa0d65d",
+    "artifacts/prompt-budget-green.xml": "3e8876ae7cb13c7a5af3feb2202497e3b22e90b561db56acfe785a4a38272abd"
+  }
+}

@@ -35,7 +35,7 @@
 - [x] Soak validation: add a bounded, synthetic-only diagnostic run compatible with the frozen EXE, if necessary, with tests for invalid arguments, time completion and early failure. Add an external resource sampler with isolated reports. Short rehearsal must pass before the eight-hour run.
 - [x] Run full tests, Ruff, independent review and Windows EXE build; visually verify meaningful history/UI changes.
 - [x] Run eight-hour frozen-EXE soak at the normal collection cadence with 10 synthetic targets. Record wall time, samples, heartbeat, private bytes/handles/threads, DB integrity and clean shutdown. If continuation is needed, retain exact process/run identity and arrange a follow-up on this thread.
-- [ ] Deliver verified artifacts and evidence; do not claim long-soak/field success before observed completion.
+- [x] Deliver verified artifacts and evidence; do not claim long-soak/field success before observed completion.
 
 ## Progress
 
@@ -56,3 +56,5 @@
 - Final validation documentation and release notes now record the observed result. Delivery remains pending until refreshed ZIP docs/SOURCE, source manifest/fingerprint and EXE identity, final package execution, PR/release publication and actual download are verified. Keep the final ZIP's own hash in its external `.sha256`, avoiding a self-referential embedded hash.
 
 - Final local package with eight-hour evidence passed 10 frozen runs / 275 observations, all sessions closed, 246 source hashes and unchanged product fingerprint/EXE hash. Source code is unchanged since 5f25a05; final documentation revision and exact-head CI/public release checks remain the delivery gate.
+- Published immutable v0.3.8 from 2bdc908 after exact-head CI success and PR #3 merge. Release workflow 40577888540 passed 708 tests and both frozen smokes. All four public assets were downloaded without authentication; digests, source manifest/fingerprint and final docs matched. Public Windows ZIP passed 10 runs / 275 observations / 55 closed sessions, SQLite integrity/FKs, Korean paths and Python-free child PATH. Public EXE bytes are explicitly distinguished from the local eight-hour EXE; post-publication evidence is external to the immutable ZIP.
+- Merge-main CI 40577865756 exposed a test deadline interaction: first-use key persistence consumed the invalid-prompt test's shared 0.2s budget. Original failure artifacts remain preserved. A 0.25s synthetic key-save delay reproduced all five failures, then separating setup from the command deadline passed the complete 58-test SSH file. Only tests/documentation changed; no runtime, trust, prompt, or release asset change. The tests-only follow-up must pass its PR/CI before merge; keep original failed CI evidence rather than rewriting it as success.

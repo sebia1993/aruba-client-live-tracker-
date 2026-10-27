@@ -589,14 +589,31 @@ def test_prompt_status_change_preserves_same_device_identity(make, initial, fina
     '(OTHER) ^[mynode] #', '(LAB) ^[othernode] #', '(LAB) ^[mynode] >',
     '(LAB) ^^[mynode] #', '(LAB) %[mynode] #',
 ])
-def test_changed_prompt_identity_does_not_complete_command(make, final):
-    channel = Channel('Total entries = 0\r\n' + final)
+@pytest.mark.parametrize('key_save_delay', [0, 0.25])
+def test_changed_prompt_identity_does_not_complete_command(make, monkeypatch, final, key_save_delay):
+    from aruba_client_live_tracker import ssh
+
+    save_key = ssh._save_key
+
+    def delayed_save_key(*args, **kwargs):
+        # Model first-use disk latency separately from prompt handling.
+        time.sleep(key_save_delay)
+        return save_key(*args, **kwargs)
+
+    monkeypatch.setattr(ssh, '_save_key', delayed_save_key)
+    channel = Channel('Total entries = 0\r\n(LAB) [mynode] #')
     channel.pending = deque([b'Synthetic CLI\r\n(LAB) [mynode] #'])
     session, _, _ = make(channel=channel)
     try:
+        # Complete connection and key persistence before testing the command
+        # deadline. A slow disk must not substitute HOST_KEY_TIMEOUT for the
+        # prompt rejection this test is intended to exercise.
+        assert session.run('show switches', deadline=time.monotonic() + 5) == 'Total entries = 0'
+        channel.response = 'Total entries = 0\r\n' + final
         with pytest.raises(SSHError) as caught:
             session.run('show switches', deadline=time.monotonic() + 0.2)
         assert caught.value.code == 'TIMEOUT'
+        assert channel.sent == ['show switches\n', 'show switches\n']
     finally:
         session.close()
 
