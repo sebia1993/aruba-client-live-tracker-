@@ -8,7 +8,11 @@
 
 Windows x64 ZIP 전체를 새 폴더에 풀고 `ArubaClientLiveTracker/ArubaClientLiveTracker.exe`를 실행하십시오. Python 설치와 관리자 권한은 필요하지 않으며 미서명입니다. `_internal` 등 폴더를 포함한 ZIP 전체와 SHA-256, 서드파티 대응 소스를 함께 보관하십시오.
 
-장시간 진단은 새 합성 데이터 폴더만 사용하며 수집 정체·저장 공백·GUI 정지·리소스 증가를 별도로 확인합니다. 짧은 리허설이나 가속 반복을 8시간 완료로 표시하지 않습니다. 게시와 최종 결과는 [최신 검증 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/BUILD_VALIDATION_KO.md), 빌드 당시 pytest XML·EXE JSON은 ZIP의 validation 폴더에서 확인하십시오. [이전 v0.3.7 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.7/BUILD_VALIDATION_KO.md)을 보존했습니다.
+빌드 `0.3.8-506867ece370`의 실제 native Windows 8시간 진단이 정상 종료했습니다. 외부 기록기 28,801.734초·앱 28,800.515초 동안 합성 대상 10대가 각각 2,836건, 총 28,360건을 저장했습니다. SQLite 무결성·외래키·세션 10개 정상 종료, 저장 공백과 2,881개 자원 표본의 메모리·핸들·스레드 기준을 확인했습니다. 이전 중단·실패 실행은 보존하고 이번 실행 시간에 합산하지 않았습니다. 시스템 시각 보정에 따른 표시 시각 차이는 단조 경과 시계와 Windows 이벤트로 대조했습니다.
+
+최종 로컬 전체 708개 검사와 수정본 CI가 통과했습니다. CI의 실제 검증 artifact는 Linux 688개 통과·Windows 전용 20개 제외, Windows 검사 및 빌드 재검사 각각 708개 통과와 source/frozen smoke 6개 성공을 확인했습니다. 장시간 진단은 새 합성 데이터 폴더만 사용하며 실제 SSH는 별도 루프백 장애 시험으로 확인했습니다.
+
+최종 문서를 포함한 ZIP 재검사와 PR·공개 릴리스 전달은 별도로 완료 여부를 확인합니다. GitHub Actions에서 별도로 빌드한 공개 EXE에는 같은 제품 소스·빌드 식별자 확인과 다운로드 후 패키지 실행 검증을 적용하며, 위 로컬 EXE의 장시간 실측과 구분합니다. 게시 상태와 상세 결과는 [최신 검증 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/BUILD_VALIDATION_KO.md), 비식별 실측 요약은 [8시간 검증 증거](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.8/stability-eight-hour.json), 최종 아카이브 해시는 함께 제공되는 `.sha256`에서 확인하십시오. 빌드 당시 pytest XML·EXE JSON은 ZIP의 validation 폴더에 있습니다. [이전 v0.3.7 기록](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.3.7/BUILD_VALIDATION_KO.md)을 보존했습니다.
 
 Windows에서 진행 파일을 읽고 교체하는 순간의 일시적인 권한 오류는 제한된 시간만 재시도합니다. 앱은 GUI를 막지 않고 다음 tick에서 다시 저장하며, 같은 진행 버전을 다시 읽어도 수집 정지로 오판하지 않습니다. 지속적인 권한 거부나 실제 진행 정지는 계속 실패 처리합니다.
 
