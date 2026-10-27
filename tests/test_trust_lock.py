@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import base64
+import errno
 import multiprocessing
+import os
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import paramiko
 import pytest
@@ -146,3 +149,44 @@ def test_hashed_existing_key_is_reused_and_preserved(tmp_path):
     assert path.read_bytes() == original
     _save_key(path, '192.0.2.20', paramiko.RSAKey.generate(1024))
     assert path.read_bytes().startswith(original)
+
+
+def test_windows_empty_lock_file_never_writes_a_byte_before_locking(tmp_path, monkeypatch):
+    import aruba_client_live_tracker.ssh as ssh
+
+    path = tmp_path / 'known_hosts'
+    events = []
+
+    class WindowsOS:
+        name = 'nt'
+
+        def __getattr__(self, name):
+            return getattr(os, name)
+
+        def write(self, descriptor, data):
+            # Another process locked byte zero after this process observed an
+            # empty sidecar. Windows rejects writing that byte with EACCES.
+            events.append('initialization-write')
+            raise PermissionError(errno.EACCES, 'byte zero is already locked')
+
+    def locking(descriptor, operation, length):
+        assert length == 1
+        assert os.lseek(descriptor, 0, os.SEEK_CUR) == 0
+        assert os.fstat(descriptor).st_size == 0
+        if operation == 'lock':
+            if not events:
+                events.append('contended')
+                raise PermissionError(errno.EACCES, 'other process holds the lock')
+            events.append('acquired')
+        else:
+            assert operation == 'unlock'
+            events.append('released')
+
+    monkeypatch.setattr(ssh, 'os', WindowsOS())
+    monkeypatch.setattr(ssh, 'msvcrt', SimpleNamespace(LK_NBLCK='lock', LK_UNLCK='unlock', locking=locking),
+                        raising=False)
+    with ssh._trust_lock(path, None, time.monotonic() + 2):
+        assert events == ['contended', 'acquired']
+        events.append('critical-section')
+    assert events == ['contended', 'acquired', 'critical-section', 'released']
+    assert path.with_name('known_hosts.lock').read_bytes() == b''

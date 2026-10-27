@@ -120,8 +120,8 @@ def _trust_lock(path: Path, cancel: threading.Event | None, deadline: float):
             descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
             if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                 raise OSError("not a regular lock file")
-            if os.name == "nt" and os.fstat(descriptor).st_size == 0:
-                os.write(descriptor, b"\0")
+            # msvcrt permits locking beyond EOF. Initializing byte zero before
+            # locking races with a peer that already locked it after our open.
             while True:
                 _trust_check(cancel, deadline)
                 try:

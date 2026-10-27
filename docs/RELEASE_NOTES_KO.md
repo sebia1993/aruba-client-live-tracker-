@@ -1,4 +1,4 @@
-Aruba Client Live Tracker v0.3.1
+Aruba Client Live Tracker v0.3.2
 
 MM 이름/IP와 공통 SSH 계정으로 장비 목록을 발견하고 선택한 장비의 역할·모델·버전을 검사할 수 있습니다. show switches/show version/show switchinfo의 읽기 전용 결과를 사용하며, 불명확한 역할은 AUTO로 남겨 추적에서 제외합니다. 기존 수동 장비·관리 주소·Current switch 매핑을 보존합니다. 최초 서버 키는 질문이나 opt-in 없이 자동 저장하고 변경된 키·알고리즘은 인증 전에 차단합니다. 공통 계정은 실행 중에만 재사용하며 파일에 저장하지 않습니다.
 
@@ -6,7 +6,9 @@ MM 이름/IP와 공통 SSH 계정으로 장비 목록을 발견하고 선택한 
 
 Windows x64 실행 ZIP 전체를 압축 해제한 뒤 ArubaClientLiveTracker/ArubaClientLiveTracker.exe를 실행하십시오. Python 설치와 관리자 권한은 필요하지 않습니다. 먼저 데모로 확인하고 제공된 SHA-256을 비교하십시오. 코드 서명되지 않았습니다. LGPL 대응 소스 ZIP도 함께 보관·재배포합니다. Qt/PySide 6.8.3와 Paramiko 5.0.0 버전 및 정확한 대응 소스 검증을 유지합니다.
 
-v0.3.0 태그 빌드는 10대×300회 반복 테스트의 60초 제한으로 게시 전에 중단했습니다. 공개 태그를 보존하고, 실제 작업자·SQLite·300회·버퍼/공정성 조건을 유지한 완료 통지 기반 테스트로 수정하여 v0.3.1을 배포합니다. 로컬 전체 테스트 307개와 정적 검사를 통과했습니다. 태그 워크플로는 Windows 테스트·EXE 단일/10대 실행 검사를 모두 통과해야 릴리스를 게시합니다. 실행 ZIP의 validation 폴더에 JUnit XML과 스모크 JSON을 포함합니다. 최종 CI·공개 ZIP 검증 결과는 이 릴리스와 docs/BUILD_VALIDATION_KO.md에 기록합니다.
+Windows에서 여러 프로세스가 최초 서버 키를 동시에 저장할 때 발생하던 잠금 파일 초기화 경합을 수정했습니다. EOF 이후에도 byte 잠금이 가능하므로 잠금 전 NUL 쓰기를 제거하고, 취소/기한·프로세스 잠금·변경 키 차단을 유지합니다. v0.3.0의 반복 테스트 시간 의존성 개선도 포함합니다. v0.3.1의 Release 성공과 병렬 CI 잠금 실패는 별도 기록에 보존하며, 이 버전으로 교체합니다.
+
+태그 워크플로는 Windows 테스트·EXE 단일/10대 실행 검사를 모두 통과해야 릴리스를 게시합니다. 실행 ZIP의 validation 폴더에 JUnit XML과 스모크 JSON을 포함합니다. 최종 CI·공개 ZIP 검증 결과는 이 릴리스와 docs/BUILD_VALIDATION_KO.md에 기록합니다.
 
 미검증: 실제 ArubaOS 8.10 세부 버전/7240XM/AP-535의 명령과 출력 의미·역할·실장비 부하·장시간 실행·MM 장애 전환·MD 클러스터 로밍, Windows 11 실기와 고배율 화면입니다. Qt offscreen과 Windows CI runner는 실기 검증과 구분합니다.
 
