@@ -11,3 +11,7 @@ Windows x64 실행 ZIP 전체를 압축 해제한 뒤 ArubaClientLiveTracker/Aru
 제한: 주기 사이의 짧은 사건을 놓칠 수 있고 PHY Rate는 실제 Throughput이 아닙니다. 미제공 지표는 확인 불가입니다. SQLite·설정·보고서는 암호화하지 않으므로 로컬에서 보호하십시오.
 
 저장소: https://github.com/sebia1993/aruba-client-live-tracker-
+
+최종 게시 검증: [태그 CI](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40430805964)와 [Windows Release](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40430808037)가 모두 성공했습니다. Release의 테스트 178개 통과 후 게시된 파일을 다시 다운로드해 ZIP·체크섬·x64 GUI EXE·일반 사용자 권한·한국어 번역·라이선스·대응 소스를 확인했습니다. 검증 환경은 Windows Server 2025 x64 runner이며 Windows 11 실기 검증은 아닙니다.
+
+Windows 실행 ZIP: 42,216,853바이트. SHA-256: `c4256aaa98278f01374b50c804e1ea17761fa5de79e21738873e7d125b9da98f`. 각 ZIP의 `.sha256`을 함께 제공합니다. [다운로드 검증 JSON](https://github.com/sebia1993/aruba-client-live-tracker-/blob/main/docs/validation/v0.2.0/release-verification.json)은 저장소에서 확인할 수 있습니다.

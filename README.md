@@ -10,7 +10,7 @@ Ubuntu·Windows CI의 자동 테스트 각 **178개**와 Windows EXE의 단일·
 
 ## 다운로드와 실행
 
-공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [v0.2.0 Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.2.0)에서 **[Windows 실행 ZIP](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.2.0/ArubaClientLiveTracker_v0.2.0_windows_x64.zip)**, SHA-256 및 대응 소스를 받으십시오. 태그 빌드 검증이 완료되면 파일이 게시됩니다.
+공개 저장소는 [sebia1993/aruba-client-live-tracker-](https://github.com/sebia1993/aruba-client-live-tracker-)입니다. **저장소 이름 끝의 하이픈을 포함합니다.** [v0.2.0 Releases](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.2.0)에서 **[Windows 실행 ZIP](https://github.com/sebia1993/aruba-client-live-tracker-/releases/download/v0.2.0/ArubaClientLiveTracker_v0.2.0_windows_x64.zip)**, SHA-256 및 대응 소스를 받으십시오. 2026-10-27 게시 완료. 다운로드 파일의 SHA-256과 ZIP 구성도 검증했습니다.
 
 1. `ArubaClientLiveTracker_v0.2.0_windows_x64.zip`과 `.sha256`을 받아 해시를 비교합니다.
 2. ZIP 전체를 사용자 폴더에 풀고 `ArubaClientLiveTracker/ArubaClientLiveTracker.exe`를 실행합니다. Python 설치와 관리자 권한은 필요하지 않습니다.

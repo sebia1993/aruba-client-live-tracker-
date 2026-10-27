@@ -7,7 +7,9 @@
 - [x] 다중 GUI: 등록/붙여넣기/선택 상세, 개별/전체 시작·중지·일시정지·재개·새로고침, 승인 큐
 - [x] 통합 보고서와10대 데모: 기존 DB 유지, 대상·세션 식별, 시각순, 안전한 HTML/CSV
 - [x] 단일 회귀/10대 반복/동시성/GUI/보안 검증 및 독립 리뷰
-- [ ] v0.2.0 문서/화면/Windows Actions 빌드/실제 EXE smoke/Release ZIP·SHA·소스
+- [x] v0.2.0 문서/화면/Windows Actions 빌드/실제 EXE smoke/Release ZIP·SHA·소스
+
+공개 배포: [v0.2.0](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.2.0). 최종 검증과 미검증 경계는 [빌드 기록](BUILD_VALIDATION_KO.md)을 참조한다.
 
 ## 공통 계약
 새 monitoring.py는 Qt 비의존 coordinator다. UI 주 스레드가 tick()으로 완료 큐를 처리하고 반환된 대상 ID 목록을 다시 그린다. worker는 collector.poll만 호출하며 UI/SQLite를 변경하지 않는다. 최대2개 ThreadPoolExecutor, 실제 제출 작업도2개까지. context 상태 stopped/running/paused/selection_required/duplicate. 각 context에는 id,target,tracker,collector,session_id,generation,cancel,in_flight,view,last_result,next_due,samples(240),events(500)가 있다.
