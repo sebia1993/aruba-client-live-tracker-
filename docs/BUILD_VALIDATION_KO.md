@@ -49,6 +49,8 @@ Windows PowerShell 5.1로 `build_windows.ps1 -Version 0.3.7 -SkipInstall`을 실
 
 키 파일 fsync에 0.6초 지연을 주입하자 해당 4개 사례 모두 같은 오류로 실패했고, 성공 판별 테스트의 제한만 5초로 조정한 뒤 4개 모두 통과했습니다. 시간 초과·취소 전용 테스트와 제품 코드는 변경하지 않았습니다. 재현 XML은 `artifacts/slow-trust-red.xml`, `artifacts/slow-trust-green.xml`입니다. 이 테스트 수정은 태그 이후 main에 반영하며, 배포 EXE의 소스 해시에는 영향이 없습니다.
 
+수정 커밋 `e0f991f8f75ef596496cf872cf17a15e2649456b`의 [최종 main CI 40480753769](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40480753769)는 **성공**했습니다. Linux 574개 통과·Windows 전용 1개 제외(43.500초), Windows 575개 통과(82.989초), Windows 빌드 재검사 575개 통과(77.871초)이며 실패·오류는 없습니다. 수정한 프롬프트 4개 사례는 세 검사 모두 통과했습니다. 독립 검토자가 XML과 소스/EXE 실행 JSON 6개의 성공·관측 수·빌드 식별자를 확인했습니다. 중복 XML은 해시로 확인해 중복 집계하지 않았습니다. 증거는 `artifacts/ci-followup-v037/`에 보관합니다. 최종 문서 기록만 별도 커밋하며 제품 코드와 테스트는 이 CI 검증 상태를 유지합니다.
+
 ## 공개 릴리스 재검증
 
 [v0.3.7 정식 릴리스](https://github.com/sebia1993/aruba-client-live-tracker-/releases/tag/v0.3.7)는 2026-10-27 18:19:17 KST에 게시됐습니다. [릴리스 작업 40479499367](https://github.com/sebia1993/aruba-client-live-tracker-/actions/runs/40479499367)은 태그 커밋 `258b964`에서 성공했습니다. 독립적으로 받은 검증 XML은 **575개 통과, 실패·오류·건너뛰기 0, 86.169초**이며, 실제 EXE 단일·10대 관측 JSON의 성공·관측 수·버전·빌드 식별자가 일치했습니다.
